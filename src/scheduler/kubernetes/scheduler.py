@@ -153,11 +153,7 @@ class Scheduler(object):
             "env": env,
             "resources": {
                 "requests": {
-                    "memory": "256Mi",
-                    "cpu": 0.1
-                },
-                "limits": {
-                    "memory": "256Mi",
+                    "memory": "128Mi",
                     "cpu": 0.1
                 }
             },
