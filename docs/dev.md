@@ -14,6 +14,11 @@ pip install pipenv
 pipenv install
 ```
 
+Then install Crypto module for Python:
+```bash
+pip install pycrypto
+```
+
 To activate the environment every time you open a new shell:
 
 ```bash
