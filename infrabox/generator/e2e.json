@@ -26,9 +26,21 @@
         "build_context": "../..",
         "build_only": false,
         "resources": {
-            "limits": { "cpu": 1, "memory": 2048 },
-            "kubernetes": { "limits": { "cpu": 1, "memory": 2048 } }
+            "limits": { "cpu": 1, "memory": 2048 }
         },
+        "external_resources": [{
+            "type": "kubernetes-namespace",
+            "name": "master",
+            "spec": {
+                "limits": { "cpu": 1, "memory": 2048 }
+            }
+        }, {
+            "type": "kubernetes-namespace",
+            "name": "master",
+            "spec": {
+                "limits": { "cpu": 1, "memory": 2048 }
+            }
+        }],
         "cache": {
             "image": true
         }

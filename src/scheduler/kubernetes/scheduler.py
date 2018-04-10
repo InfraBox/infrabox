@@ -407,10 +407,19 @@ class Scheduler(object):
 
         return env
 
+    def abort_job(self, job_id, message):
+        self.logger.warn(message)
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            UPDATE job
+            SET state = 'error', console = %s
+            WHERE id = %s''', [message, job_id])
+        cursor.close()
+
     def schedule_job(self, job_id, cpu, memory):
         cursor = self.conn.cursor()
         cursor.execute('''
-            SELECT j.type, build_id, resources FROM job j WHERE j.id = %s
+            SELECT j.type, build_id, resources, definition FROM job j WHERE j.id = %s
         ''', (job_id,))
         j = cursor.fetchone()
         cursor.close()
@@ -418,6 +427,7 @@ class Scheduler(object):
         job_type = j[0]
         build_id = j[1]
         resources = j[2]
+        definition = j[3]
 
         cpu -= 0.2
 
@@ -427,14 +437,23 @@ class Scheduler(object):
             additional_env = self.create_kube_namespace(job_id, k8s)
 
             if not additional_env:
-                self.logger.warn('Failed to create kubernetes namespace')
-                cursor = self.conn.cursor()
-                cursor.execute('''
-                    UPDATE job
-                    SET state = 'error', console = 'Failed to create kubernetes namespace'
-                    WHERE id = %s''', [job_id])
-                cursor.close()
+                self.abort_job(job_id, 'Failed to create kubernetes namespace')
                 return
+
+        er = definition.get('external_resources', [])
+
+        for res in er:
+            if res['type'] == 'kubernetes-namespace':
+                spec = res['spec']
+                name = res['name']
+
+                additional_env = self.create_kube_namespace(job_id, spec)
+
+                if not additional_env:
+                    self.abort_job(job_id, 'Failed to create kubernetes namespace')
+                    return
+            else:
+                self.abort_job(job_id, 'Unknown external resource type "%s"' % res['type'])
 
         self.logger.info("Scheduling job to kubernetes")
 

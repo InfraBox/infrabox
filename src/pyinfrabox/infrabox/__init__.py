@@ -194,6 +194,35 @@ def parse_resources_kubernetes(d, path):
 
     parse_kubernetes_limits(d['limits'], path + ".limits")
 
+def parse_er_kubernetes_namespace(d, path):
+    check_allowed_properties(d, path, ('limits',))
+    check_required_properties(d, path, ("limits",))
+
+    parse_kubernetes_limits(d['limits'], path + ".limits")
+
+def parse_external_resources(d, path):
+    if not isinstance(d, list):
+        raise ValidationError(path, "must be an array")
+
+    for i in range(0, len(d)):
+        elem = d[i]
+        p = "%s[%s]" % (path, i)
+
+        if 'type' not in elem:
+            raise ValidationError(p, "does not contain a 'type'")
+
+        if 'spec' not in elem:
+            raise ValidationError(p, "does not contain a 'spec'")
+
+        t = elem['type']
+
+        p += '.spec'
+
+        if t == 'kubernetes-namespace':
+            parse_er_kubernetes_namespace(elem['spec'], p)
+        else:
+            raise ValidationError(p, "type '%s' not supported" % t)
+
 def parse_resources(d, path):
     check_allowed_properties(d, path, ("limits", "kubernetes"))
     check_required_properties(d, path, ("limits",))
@@ -204,11 +233,14 @@ def parse_docker_image(d, path):
     check_allowed_properties(d, path, ("type", "name", "image", "depends_on", "resources",
                                        "environment", "timeout", "security_context",
                                        "build_context", "cache", "repository", "command",
-                                       "cluster"))
+                                       "cluster", "external_resources"))
     check_required_properties(d, path, ("type", "name", "image", "resources"))
     check_name(d['name'], path + ".name")
     check_text(d['image'], path + ".image")
     parse_resources(d['resources'], path + ".resources")
+
+    if 'external_resources' in d:
+        parse_external_resources(d['external_resources'], path + ".external_resources")
 
     if 'cluster' in d:
         parse_cluster(d['cluster'], path + ".cluster")
