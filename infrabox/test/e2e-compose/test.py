@@ -210,6 +210,14 @@ class Test(unittest.TestCase):
         self.expect_job('flow', parents=['flow/test-sub'])
         self.expect_job('flow/test-sub', parents=['Create Jobs'])
 
+    def test_extension_kubernetes_namespaces(self):
+        self.run_it('/infrabox/context/infrabox/test/e2e/tests/extension_kubernetes_namespaces')
+        self.expect_job('test')
+
+    def test_extension_multiple_kubernetes_namespaces(self):
+        self.run_it('/infrabox/context/infrabox/test/e2e/tests/extension_multiple_kubernetes_namespaces')
+        self.expect_job('test')
+
     def test_image_input_output(self):
         self.run_it('/infrabox/context/infrabox/test/e2e/tests/docker_image_input_output')
         self.expect_job('consumer')

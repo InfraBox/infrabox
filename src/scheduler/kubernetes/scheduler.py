@@ -3,6 +3,7 @@ import argparse
 import time
 import os
 import sys
+import base64
 import requests
 import psycopg2
 import psycopg2.extensions
@@ -44,6 +45,15 @@ class Scheduler(object):
                         headers=h, params=p, timeout=10)
 
 
+    def kube_delete_secret(self, name):
+        h = {'Authorization': 'Bearer %s' % self.args.token}
+
+        # delete the namespace
+        p = {"gracePeriodSeconds": 0}
+        requests.delete(self.args.api_server + '/api/v1/namespaces/%s/secrets/%s' % (self.namespace, name),
+                        headers=h, params=p, timeout=10)
+
+
     def kube_delete_job(self, job_id):
         h = {'Authorization': 'Bearer %s' % self.args.token}
 
@@ -71,7 +81,7 @@ class Scheduler(object):
             requests.delete(self.args.api_server + '/api/v1/namespaces/%s/pods/%s' % (self.namespace, pod_name,),
                             headers=h, params=p, timeout=5)
 
-    def kube_job(self, job_id, build_id, cpu, mem, job_type, additional_env=None):
+    def kube_job(self, job_id, build_id, cpu, mem, job_type, extension_secrets=None):
         h = {'Authorization': 'Bearer %s' % self.args.token}
         volumes = [{
             "name": "data-dir",
@@ -133,8 +143,20 @@ class Scheduler(object):
             "value": str(cpu)
         }]
 
-        if additional_env:
-            env += additional_env
+        if extension_secrets:
+            for es in extension_secrets:
+                volumes.append({
+                    'name': es['secret_name'],
+                    'secret': {
+                        'secretName': es['secret_name']
+                    }
+                })
+
+                volume_mounts.append({
+                    'mountPath': '/var/run/infrabox/extensions/%s' % es['extension_name'],
+                    'readOnly': True,
+                    'name': es['secret_name']
+                })
 
         if use_host_docker_daemon():
             volumes.append({
@@ -259,18 +281,17 @@ class Scheduler(object):
 
         return True
 
-    def create_kube_namespace(self, job_id, _k8s_resources):
+    def create_kube_namespace(self, job_id, k8s_resources, name, set_quotas=False):
         self.logger.info("Provisioning kubernetes namespace")
         h = {'Authorization': 'Bearer %s' % self.args.token}
 
-        namespace_name = "ib-%s" % job_id
+        namespace_name = "ib-%s-%s" % (name, job_id)
         ns = {
             "apiVersion": "v1",
             "kind": "Namespace",
             "metadata": {
                 "name": namespace_name,
                 "labels": {
-                    "infrabox-resource": "kubernetes",
                     "infrabox-job-id": job_id,
                 }
             }
@@ -283,27 +304,28 @@ class Scheduler(object):
             self.logger.warn("Failed to create Namespace: %s", r.text)
             return False
 
-#        rq = {
-#            "apiVersion": "v1",
-#            "kind": "ResourceQuota",
-#            "metadata": {
-#                "name": "compute-resources",
-#                "namespace": namespace_name
-#            },
-#            "spec": {
-#                "hard": {
-#                    "limits.cpu": k8s_resources['limits']['cpu'],
-#                    "limits.memory": k8s_resources['limits']['memory']
-#                }
-#            }
-#        }
-#
-#        #r = requests.post(self.args.api_server + '/api/v1/namespaces/' + namespace_name + '/resourcequotas',
-#        #                  headers=h, json=rq, timeout=10)
-#
-#        if r.status_code != 201:
-#            self.logger.warn("Failed to create ResourceQuota: %s" % r.text)
-#            return False
+        if set_quotas:
+            rq = {
+                "apiVersion": "v1",
+                "kind": "ResourceQuota",
+                "metadata": {
+                    "name": "compute-resources",
+                    "namespace": namespace_name
+                },
+                "spec": {
+                    "hard": {
+                        "limits.cpu": k8s_resources['limits']['cpu'],
+                        "limits.memory": "%sMi" % k8s_resources['limits']['memory']
+                    }
+                }
+            }
+
+            r = requests.post(self.args.api_server + '/api/v1/namespaces/' + namespace_name + '/resourcequotas',
+                              headers=h, json=rq, timeout=10)
+
+            if r.status_code != 201:
+                self.logger.warn("Failed to create ResourceQuota: %s" % r.text)
+                return False
 
         role = {
             'kind': 'Role',
@@ -392,20 +414,42 @@ class Scheduler(object):
                          headers=h, timeout=5)
 
         if r.status_code != 200:
-            self.logger.warn("Failed to get service account secret: %s", r.txt)
+            self.logger.warn("Failed to get service account secret: %s", r.text)
             return False
 
         data = r.json()
         secret = data['items'][0]
 
-        env = [
-            {"name": "INFRABOX_RESOURCES_KUBERNETES_CA_CRT", "value": secret['data']['ca.crt']},
-            {"name": "INFRABOX_RESOURCES_KUBERNETES_TOKEN", "value":  secret['data']['token']},
-            {"name": "INFRABOX_RESOURCES_KUBERNETES_NAMESPACE", "value": secret['data']['namespace']},
-            {"name": "INFRABOX_RESOURCES_KUBERNETES_MASTER_URL", "value": self.args.api_server}
-        ]
+        # create secret in worker namespaces
+        secret_name = ('secret-%s-%s' % (name, job_id)).lower()
 
-        return env
+        s = {
+            'apiVersion': 'v1',
+            'metadata': {
+                'name': secret_name,
+                'labels': {
+                    'infrabox-job-id': job_id,
+                }
+            },
+            'data': {
+                'ca.crt': secret['data']['ca.crt'],
+                'token': secret['data']['token'],
+                'namespace': secret['data']['namespace'],
+                'master': base64.b64encode(self.args.api_server.encode('utf8')).decode('utf8')
+            }
+        }
+
+        r = requests.post(self.args.api_server + '/api/v1/namespaces/%s/secrets' % self.namespace,
+                          headers=h, json=s, timeout=10)
+
+        if r.status_code != 201:
+            self.logger.warn("Failed to create secret: %s", r.text)
+            return False
+
+        return {
+            'secret_name': secret_name,
+            'extension_name': name
+        }
 
     def abort_job(self, job_id, message):
         self.logger.warn(message)
@@ -431,29 +475,32 @@ class Scheduler(object):
 
         cpu -= 0.2
 
-        additional_env = None
+        extension_secrets = []
         if resources and resources.get('kubernetes', None):
             k8s = resources.get('kubernetes', None)
-            additional_env = self.create_kube_namespace(job_id, k8s)
+            secret = self.create_kube_namespace(job_id, k8s, name=None)
+            extension_secrets.append(secret)
 
-            if not additional_env:
+            if not secret:
                 self.abort_job(job_id, 'Failed to create kubernetes namespace')
                 return
 
-        er = definition.get('external_resources', [])
+        if definition:
+            ex = definition.get('extensions', [])
 
-        for res in er:
-            if res['type'] == 'kubernetes-namespace':
-                spec = res['spec']
-                name = res['name']
+            for res in ex:
+                if res['type'] == 'kubernetes-namespace':
+                    spec = res['spec']
+                    name = res['name']
 
-                additional_env = self.create_kube_namespace(job_id, spec)
+                    secret = self.create_kube_namespace(job_id, spec, name, set_quotas=True)
+                    extension_secrets.append(secret)
 
-                if not additional_env:
-                    self.abort_job(job_id, 'Failed to create kubernetes namespace')
-                    return
-            else:
-                self.abort_job(job_id, 'Unknown external resource type "%s"' % res['type'])
+                    if not secret:
+                        self.abort_job(job_id, 'Failed to create kubernetes namespace')
+                        return
+                else:
+                    self.abort_job(job_id, 'Unknown external resource type "%s"' % res['type'])
 
         self.logger.info("Scheduling job to kubernetes")
 
@@ -465,7 +512,7 @@ class Scheduler(object):
             self.logger.error("Unknown job type: %s", job_type)
             return
 
-        if not self.kube_job(job_id, build_id, cpu, memory, job_type, additional_env=additional_env):
+        if not self.kube_job(job_id, build_id, cpu, memory, job_type, extension_secrets):
             return
 
         cursor = self.conn.cursor()
@@ -721,6 +768,47 @@ class Scheduler(object):
                 self.logger.info('Deleting orphaned job %s', job_id)
                 self.kube_delete_job(job_id)
 
+    def handle_orphaned_secrets(self):
+        h = {'Authorization': 'Bearer %s' % self.args.token}
+        r = requests.get(self.args.api_server + '/api/v1/namespaces/%s/secrets' % self.namespace,
+                         headers=h,
+                         timeout=10)
+        data = r.json()
+
+        for j in data['items']:
+            if 'metadata' not in j:
+                continue
+
+            metadata = j['metadata']
+            if 'labels' not in metadata:
+                continue
+
+            labels = metadata['labels']
+            name = metadata['name']
+
+            for key in labels:
+                if key != 'infrabox-job-id':
+                    continue
+
+                job_id = labels[key]
+
+                cursor = self.conn.cursor()
+                cursor.execute('''SELECT state FROM job where id = %s''', (job_id,))
+                result = cursor.fetchall()
+                cursor.close()
+
+                if len(result) != 1:
+                    continue
+
+                state = result[0][0]
+
+                if state in ('queued', 'scheduled', 'running'):
+                    continue
+
+                self.logger.info('Deleting orphaned secret %s', name)
+                self.kube_delete_secret(name)
+
+
     def update_cluster_state(self):
         cluster_name = os.environ['INFRABOX_CLUSTER_NAME']
         labels = []
@@ -779,6 +867,7 @@ class Scheduler(object):
             self.handle_aborts()
             self.handle_orphaned_jobs()
             self.handle_orphaned_namespaces()
+            self.handle_orphaned_secrets()
         except Exception as e:
             self.logger.exception(e)
 
