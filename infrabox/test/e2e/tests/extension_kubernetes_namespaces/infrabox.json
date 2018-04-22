@@ -6,8 +6,14 @@
         "docker_file": "Dockerfile",
         "build_only": false,
         "resources": {
-            "limits": { "cpu": 1, "memory": 1024 },
-            "kubernetes": { "limits": { "cpu": 1, "memory": 1024 } }
-        }
+            "limits": { "cpu": 1, "memory": 1024 }
+        },
+        "extensions": [{
+            "type": "kubernetes-namespace",
+            "name": "test",
+            "spec": {
+                "limits": { "cpu": 1, "memory": 1024 }
+            }
+        }]
     }]
 }

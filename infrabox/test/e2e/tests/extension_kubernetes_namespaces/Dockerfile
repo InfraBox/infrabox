@@ -1,2 +1,2 @@
 FROM alpine
-CMD cat /var/run/secrets/kubernetes.io/serviceaccount/namespace
+CMD cat /var/run/infrabox/extensions/test/namespace

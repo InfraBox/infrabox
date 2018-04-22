@@ -211,10 +211,16 @@ class Test(unittest.TestCase):
         self.expect_job('flow/test-sub', parents=['Create Jobs'])
 
     def test_extension_kubernetes_namespaces(self):
+        if os.environ.get('INFRABOX_DOCKER_COMPOSE_TESTS', None):
+            return
+
         self.run_it('/infrabox/context/infrabox/test/e2e/tests/extension_kubernetes_namespaces')
         self.expect_job('test')
 
     def test_extension_multiple_kubernetes_namespaces(self):
+        if os.environ.get('INFRABOX_DOCKER_COMPOSE_TESTS', None):
+            return
+
         self.run_it('/infrabox/context/infrabox/test/e2e/tests/extension_multiple_kubernetes_namespaces')
         self.expect_job('test')
 
