@@ -465,8 +465,6 @@ class Archive(Resource):
         for f in request.files:
             stream = request.files[f].stream
             key = '%s/%s' % (job_id, f)
-            app.logger.error(f)
-            app.logger.error(job_id)
             storage.upload_archive(stream, key)
             size = stream.tell()
 
@@ -1224,8 +1222,10 @@ class SetFinished(Resource):
         message = request.json.get('message', None)
 
         # collect console output
-        lines = g.db.execute_many("""SELECT output FROM console WHERE job_id = %s
-                                     ORDER BY date""", [job_id])
+        lines = g.db.execute_many("""
+            SELECT output FROM console WHERE job_id = %s
+            ORDER BY date
+        """, [job_id])
 
         output = ""
         for l in lines:
@@ -1240,8 +1240,47 @@ class SetFinished(Resource):
             message = %s
         WHERE id = %s""", [state, output, message, job_id])
 
-        # remove form console table
+        # clean up
         g.db.execute("DELETE FROM console WHERE job_id = %s", [job_id])
+
+        # collect container logs
+        lines = g.db.execute_many("""
+            SELECT log, extension_name, pod_name, container_name
+            FROM container_logs WHERE job_id = %s
+            ORDER BY time
+        """, [job_id])
+
+        logs = {}
+
+        for l in lines:
+            filename = '%s-%s-%s.txt' % (l['extension_name'], l['pod_name'], l['container_name'])
+
+            if filename not in logs:
+                logs[filename] = ''
+
+            logs[filename] += l['log']
+
+        import StringIO
+
+        for filename, log in logs.items():
+            key = '%s/%s' % (job_id, filename)
+
+            stream = StringIO.StringIO(log)
+            storage.upload_archive(stream, key)
+            size = len(log)
+
+            archive = {
+                'filename': filename,
+                'size': size
+            }
+
+            g.db.execute('''
+                UPDATE job
+                SET archive = archive || %s::jsonb
+                WHERE id = %s
+            ''', [json.dumps(archive), job_id])
+
+            g.db.execute("DELETE FROM container_logs WHERE job_id = %s", [job_id])
 
         g.db.commit()
         return jsonify({})

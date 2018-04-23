@@ -402,6 +402,10 @@ class Kubernetes(Install):
         self.set('scheduler.tag', self.args.version)
         self.set('scheduler.enabled', not self.args.scheduler_disabled)
 
+    def setup_fluentd(self):
+        self.set('fluentd.tag', self.args.version)
+        self.set('fluentd.enabled', not self.args.fluentd_disabled)
+
     def setup_cluster(self):
         self.set('cluster.name', self.args.cluster_name)
         self.set('cluster.labels', self.args.cluster_labels)
@@ -442,6 +446,7 @@ class Kubernetes(Install):
         self.setup_job()
         self.setup_db()
         self.setup_scheduler()
+        self.setup_fluentd()
         self.setup_cluster()
         self.setup_gerrit()
         self.setup_github()
@@ -740,6 +745,9 @@ def main():
 
     # Scheduler
     parser.add_argument('--scheduler-disabled', action='store_true', default=False)
+
+    # Fluentd
+    parser.add_argument('--fluentd-disabled', action='store_true', default=False)
 
     # LDAP
     parser.add_argument('--ldap-enabled', action='store_true', default=False)

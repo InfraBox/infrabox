@@ -42,6 +42,15 @@ db:
     # Tag
     tag: latest
 
+fluentd:
+    enabled: true
+
+    # name of the scheduler image in your general.docker_registry
+    # image: fluentd
+
+    # Tag
+    tag: latest
+
 scheduler:
     enabled: true
 

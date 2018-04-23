@@ -35,13 +35,10 @@ class Scheduler(object):
             self.logger.setLevel(logging.INFO)
 
 
-    def kube_delete_namespace(self, job_id):
+    def kube_delete_namespace(self, name):
         h = {'Authorization': 'Bearer %s' % self.args.token}
-        namespace_name = "ib-%s" % job_id
-
-        # delete the namespace
         p = {"gracePeriodSeconds": 0}
-        requests.delete(self.args.api_server + '/api/v1/namespaces/%s' % (namespace_name,),
+        requests.delete(self.args.api_server + '/api/v1/namespaces/%s' % (name,),
                         headers=h, params=p, timeout=10)
 
 
@@ -285,7 +282,7 @@ class Scheduler(object):
         self.logger.info("Provisioning kubernetes namespace")
         h = {'Authorization': 'Bearer %s' % self.args.token}
 
-        namespace_name = "ib-%s-%s" % (name, job_id)
+        namespace_name = "ib-%s-%s" % (job_id, name)
         ns = {
             "apiVersion": "v1",
             "kind": "Namespace",
@@ -726,8 +723,9 @@ class Scheduler(object):
                 if state in ('queued', 'scheduled', 'running'):
                     continue
 
-                self.logger.info('Deleting orphaned namespace ib-%s', job_id)
-                self.kube_delete_namespace(job_id)
+                name = metadata['name']
+                self.logger.info('Deleting orphaned namespace %s', name)
+                self.kube_delete_namespace(name)
 
     def handle_orphaned_jobs(self):
         h = {'Authorization': 'Bearer %s' % self.args.token}

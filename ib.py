@@ -24,6 +24,7 @@ IMAGES = [
     {'name': 'github-review'},
     {'name': 'job'},
     {'name': 'job-git'},
+    {'name': 'fluentd'},
     {'name': 'scheduler-kubernetes'},
     {'name': 'scheduler-docker-compose'},
     {'name': 'docker-compose-ingress'},

@@ -1,16 +1,13 @@
 #!/bin/bash -ev
 
-NAMESPACE=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)
 IMAGE_TAG=build_$INFRABOX_BUILD_NUMBER
 
 _prepareKubectl() {
-    echo "## Prepare kubectl"
-    kubectl config set-cluster default-cluster --server=${INFRABOX_RESOURCES_KUBERNETES_MASTER_URL} --certificate-authority=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-    kubectl config set-credentials default-admin --certificate-authority=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt --token=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
-    kubectl config set-context default-system --cluster=default-cluster --user=default-admin --namespace=$NAMESPACE
-    kubectl config use-context default-system
-
-    kubectl get pods
+    echo "## Prepare kubectl for Master"
+    kubectl config set-cluster cluster --server=$MASTER_URL --certificate-authority=$TOKEN_PATH
+    kubectl config set-credentials admin --certificate-authority=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt --token=$TOKEN
+    kubectl config set-context system --cluster=cluster --user=admin --namespace=$NAMESPACE
+    kubectl config use-context system
 }
 
 _getDependencies() {
@@ -54,14 +51,7 @@ _initHelm() {
     sleep 20
 }
 
-_deinstallPostgres() {
-    echo "## Deinstall postgres"
-    helm delete --tiller-namespace $NAMESPACE --purge infrabox-postgres || true
-}
-
 _installPostgres() {
-    _deinstallPostgres
-
     echo "## Install postgres"
     kubectl run postgres --image=quay.io/infrabox/postgres:$IMAGE_TAG -n $NAMESPACE
     kubectl expose -n $NAMESPACE deployment postgres --port 5432 --target-port 5432 --name infrabox-postgres
@@ -73,14 +63,7 @@ _installPostgres() {
     done
 }
 
-_deinstallMinio() {
-    echo "## Deinstall minio"
-    helm delete --tiller-namespace $NAMESPACE --purge infrabox-minio || true
-}
-
 _installMinio() {
-    _deinstallMinio
-
     echo "## Install minio"
     helm install --tiller-namespace $NAMESPACE \
         --set serviceType=ClusterIP,replicas=1,persistence.enabled=false \
@@ -103,8 +86,6 @@ _installMinio() {
 
 _installNginxIngress() {
     echo "## Install nginx ingress"
-
-    export ROOT_URL="nic-nginx-ingress-c.$NAMESPACE"
     echo "Generating certs for: $ROOT_URL"
     openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /tmp/tls.key -out /tmp/tls.crt -subj "/CN=$ROOT_URL"
 
@@ -123,23 +104,17 @@ _installNginxIngress() {
         stable/nginx-ingress
 }
 
-_deinstallInfrabox() {
-    echo "## Deinstall infrabox"
-    helm delete --tiller-namespace $NAMESPACE --purge infrabox || true
-}
-
-_installInfrabox() {
-    _deinstallInfrabox
-
+_installInfraboxMaster() {
     ssh-keygen -N '' -t rsa -f id_rsa
     ssh-keygen -f id_rsa.pub -e -m pem > id_rsa.pem
 
     mkdir -p /var/run/secrets/infrabox.net/rsa/
     cp id_rsa* /var/run/secrets/infrabox.net/rsa/
 
-    echo "## Install infrabox"
-    outdir=/tmp/test
+    echo "## Install infrabox master"
+    outdir=/tmp/master
     rm -rf $outdir
+
     python /infrabox/context/deploy/install.py \
         -o $outdir \
         --platform kubernetes \
@@ -149,8 +124,8 @@ _installInfrabox() {
         --general-rbac-disabled \
         --general-worker-namespace $NAMESPACE \
         --general-system-namespace $NAMESPACE \
-        --general-rsa-public-key ./id_rsa.pem \
-        --general-rsa-private-key ./id_rsa \
+        --general-rsa-public-key /var/run/secrets/infrabox.net/rsa/id_rsa.pem \
+        --general-rsa-private-key /var/run/secrets/infrabox.net/rsa/id_rsa \
         --admin-email admin@infrabox.net \
         --admin-password admin \
         --database postgres \
@@ -170,15 +145,45 @@ _installInfrabox() {
     pushd $outdir/infrabox
     helm install --tiller-namespace $NAMESPACE --namespace $NAMESPACE .
     popd
-
-    export INFRABOX_DATABASE_HOST=infrabox-postgres.$NAMESPACE
-    export INFRABOX_DATABASE_DB=postgres
-    export INFRABOX_DATABASE_USER=postgres
-    export INFRABOX_DATABASE_PORT=5432
-    export INFRABOX_DATABASE_PASSWORD=postgres
-    export INFRABOX_URL=https://$ROOT_URL
-    export INFRABOX_ROOT_URL=https://$ROOT_URL
 }
+
+_installInfraboxWorker() {
+    echo "## Install infrabox worker"
+    outdir=/tmp/worker
+    rm -rf $outdir
+
+    python /infrabox/context/deploy/install.py \
+        -o $outdir \
+        --platform kubernetes \
+        --general-dont-check-certificates \
+        --version $IMAGE_TAG \
+        --root-url https://$ROOT_URL \
+        --general-rbac-disabled \
+        --general-worker-namespace $NAMESPACE \
+        --general-system-namespace $NAMESPACE \
+        --general-rsa-public-key /var/run/secrets/infrabox.net/rsa/id_rsa.pem \
+        --general-rsa-private-key /var/run/secrets/infrabox.net/rsa/id_rsa \
+        --admin-email admin@infrabox.net \
+        --admin-password admin \
+        --database postgres \
+        --postgres-host infrabox-postgres.$MASTER_NAMESPACE \
+        --postgres-username postgres \
+        --postgres-password postgres \
+        --postgres-database postgres \
+        --storage s3 \
+        --s3-endpoint infrabox-minio.$MASTER_NAMESPACE \
+        --s3-bucket infrabox \
+        --s3-secure false \
+        --s3-secret-key wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY \
+        --s3-access-key AKIAIOSFODNN7EXAMPLE \
+        --s3-region us-east-1 \
+        --s3-port 9000
+
+    pushd $outdir/infrabox
+    helm install --tiller-namespace $NAMESPACE --namespace $NAMESPACE .
+    popd
+}
+
 
 _runTests() {
     echo "## Run tests"
@@ -194,13 +199,39 @@ _runTests() {
 }
 
 main() {
+    export NAMESPACE=$(cat /var/run/infrabox/extensions/master/namespace)
+    export TOKEN=$(cat /var/run/infrabox/extensions/master/token)
+    export MASTER_URL=$(cat /var/run/infrabox/extensions/master/master)
+    export TOKEN_PATH=/var/run/infrabox/extensions/master/ca.crt
+    export MASTER_NAMESPACE=$NAMESPACE
+    export ROOT_URL="nic-nginx-ingress-c.$NAMESPACE"
+    export INFRABOX_DATABASE_HOST=infrabox-postgres.$NAMESPACE
+    export INFRABOX_DATABASE_DB=postgres
+    export INFRABOX_DATABASE_USER=postgres
+    export INFRABOX_DATABASE_PORT=5432
+    export INFRABOX_DATABASE_PASSWORD=postgres
+    export INFRABOX_URL=https://$ROOT_URL
+    export INFRABOX_ROOT_URL=https://$ROOT_URL
+
     _prepareKubectl
     _getDependencies
     _initHelm
     _installMinio
     _installPostgres
     _installNginxIngress
-    _installInfrabox
+    _installInfraboxMaster
+
+    export NAMESPACE=$(cat /var/run/infrabox/extensions/worker/namespace)
+    export TOKEN=$(cat /var/run/infrabox/extensions/worker/token)
+    export MASTER_URL=$(cat /var/run/infrabox/extensions/worker/master)
+    export TOKEN_PATH=/var/run/infrabox/extensions/worker/ca.crt
+    export ROOT_URL="nic-nginx-ingress-c.$NAMESPACE"
+
+    _prepareKubectl
+    _initHelm
+    _installNginxIngress
+    _installInfraboxWorker
+
     _runTests
 }
 
