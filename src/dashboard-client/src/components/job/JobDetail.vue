@@ -8,7 +8,7 @@
                             <md-layout md-hide-medium-and-up md-vertical-align="center" v-if="$store.state.user">
                                 <ib-state :state="job.state"></ib-state>
                             </md-layout>
-                            <md-layout md-vertical-align="center">
+                            <md-layout md-vertical-align="center" style="align-items:baseline">
                                 <router-link :to="{name: 'ProjectDetailBuilds', params: {projectName: encodeURIComponent(project.name)}}">
                                     <span v-if="project.isGit()"><i class="fa fa-github"></i></span>
                                     <span v-if="!project.isGit()"><i class="fa fa-home"></i></span>
@@ -22,6 +22,11 @@
                                     Build {{ build.number }}.{{ build.restartCounter }}
                                 </router-link>
                                 / {{ job.name}}
+                                <span v-if="project.repo && project.repo.name" style="padding-left:10px;font-size:14px;">
+                                    connected to
+                                    <a v-if="project.repo.link" :href="project.repo.link">{{ project.repo.name }}</a>
+                                    <div v-if="!project.repo.link">{{ project.repo.name }}</div>
+                                </span>
                             </md-layout>
                             <md-layout md-hide-large-and-up class="min-header-height" md-vertical-align="center">
                                 <md-menu md-size="3" class="bg-white">
@@ -52,7 +57,7 @@
                                     </md-menu-content>
                                 </md-menu>
                             </md-layout>
-                            <md-layout md-hide-medium md-flex="60" md-align="end" md-vertical-align="start">
+                            <md-layout md-hide-medium md-flex="75" md-align="end" md-vertical-align="start">
                                 <md-table-card class="clean-card">
                                     <md-table class="p-xs m-t-sm m-r-xxl m-b-sm">
                                         <md-table-body>

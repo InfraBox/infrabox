@@ -13,10 +13,16 @@ from api.namespaces import project as ns
 
 logger = get_logger('project')
 
+repo_model = api.model('ProjectRepo', {
+    'name': fields.String(required=True),
+    'link': fields.String(required=True),
+})
+
 project_model = api.model('Project', {
     'id': fields.String(required=True),
     'name': fields.String(required=True),
-    'type': fields.String(required=True)
+    'type': fields.String(required=True),
+    'repo': fields.Nested(repo_model)
 })
 
 add_project_schema = {
@@ -32,6 +38,27 @@ add_project_schema = {
 
 add_project_model = ns.schema_model('AddProject', add_project_schema)
 
+def convert_to_result_project(p):
+    repo = None
+    if p['type'] == 'github':
+        repo = {
+            'name': p['github_owner'] + '/' + p['repo_name'],
+            'link': p['html_url']
+        }
+    elif p['type'] == 'gerrit':
+        repo = {
+            'name': p['repo_name'],
+            'link': p['html_url']
+        }
+
+    return {
+        'name': p['name'],
+        'id': p['id'],
+        'type': p['type'],
+        'repo': repo
+    }
+
+
 @ns.route('/')
 class Projects(Resource):
 
@@ -39,14 +66,21 @@ class Projects(Resource):
     @api.marshal_list_with(project_model)
     def get(self):
         projects = g.db.execute_many_dict('''
-            SELECT p.id, p.name, p.type FROM project p
+            SELECT p.id, p.name, p.type, r.html_url, r.name repo_name, r.github_owner
+            FROM project p
             INNER JOIN collaborator co
             ON co.project_id = p.id
             AND %s = co.user_id
+            LEFT OUTER JOIN repository r
+            ON r.project_id = p.id
             ORDER BY p.name
         ''', [g.token['user']['id']])
 
-        return projects
+        r = []
+        for p in projects:
+            r.append(convert_to_result_project(p))
+
+        return r
 
     @auth_required(['user'], check_project_access=False)
     @api.expect(add_project_model)
@@ -200,15 +234,17 @@ class ProjectName(Resource):
     @api.marshal_with(project_model)
     def get(self, project_name):
         project = g.db.execute_one_dict('''
-            SELECT id, name, type
-            FROM project
-            WHERE name = %s
+            SELECT p.id, p.name, p.type, r.html_url, r.name repo_name, r.github_owner
+            FROM project p
+            LEFT OUTER JOIN repository r
+            ON r.project_id = p.id
+            WHERE p.name = %s
         ''', [project_name])
 
         if not project:
             abort(404)
 
-        return project
+        return convert_to_result_project(project)
 
 
 @ns.route('/<project_id>/')
@@ -218,12 +254,17 @@ class Project(Resource):
     @api.marshal_with(project_model)
     def get(self, project_id):
         project = g.db.execute_one_dict('''
-            SELECT p.id, p.name, p.type
+            SELECT p.id, p.name, p.type, r.html_url, r.name repo_name, r.github_owner
             FROM project p
-            WHERE id = %s
+            LEFT OUTER JOIN repository r
+            ON r.project_id = p.id
+            WHERE p.id = %s
         ''', [project_id])
 
-        return project
+        if not project:
+            abort(404)
+
+        return convert_to_result_project(project)
 
     @auth_required(['user'], check_project_owner=True)
     def delete(self, project_id):

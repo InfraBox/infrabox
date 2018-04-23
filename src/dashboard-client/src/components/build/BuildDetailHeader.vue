@@ -8,7 +8,7 @@
                             <md-layout md-hide-medium-and-up md-vertical-align="center">
                                 <ib-state :state="build.state"></ib-state>
                             </md-layout>
-                            <md-layout md-vertical-align="center">
+                            <md-layout md-vertical-align="center" style="align-items:baseline">
                                 <router-link :to="{name: 'ProjectDetailBuilds', params: {
                                     projectName: project.name
                                 }}">
@@ -17,6 +17,11 @@
                                     {{ project.name }}
                                 </router-link>
                                 / Build {{ build.number }}.{{ build.restartCounter }}
+                                <span v-if="project.repo && project.repo.name" style="padding-left:10px;font-size:14px;">
+                                    connected to
+                                    <a v-if="project.repo.link" :href="project.repo.link">{{ project.repo.name }}</a>
+                                    <div v-if="!project.repo.link">{{ project.repo.name }}</div>
+                                </span>
                             </md-layout>
                             <md-layout md-hide-medium-and-up class="min-header-height" md-vertical-align="center">
                                 <md-menu md-size="3" class="bg-white" md-hide-small-and-up>

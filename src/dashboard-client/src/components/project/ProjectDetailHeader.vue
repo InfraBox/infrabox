@@ -3,15 +3,20 @@
         <md-card class="main-card">
             <md-card-header class="main-card-header fix-padding">
                 <md-card-header-text>
-                    <h3 class="md-title card-title">
                         <md-layout>
-                            <md-layout md-vertical-align="center">
+                            <md-layout md-flex="25" md-vertical-align="center" style="align-items:baseline">
+                                <h3 class="md-title card-title">
                                 <span class="p-r-xs" v-if="project.isGit()"><i class="fa fa-fw fa-github"></i></span>
                                 <span v-if="!project.isGit()"><i class="fa fa-fw fa-home"></i></span>
                                 {{ project.name }}
+                                </h3>
+                                <span v-if="project.repo && project.repo.name" style="padding-left:10px;font-size:14px;">
+                                    connected to
+                                    <a v-if="project.repo.link" :href="project.repo.link">{{ project.repo.name }}</a>
+                                    <div v-if="!project.repo.link">{{ project.repo.name }}</div>
+                                </span>
                             </md-layout>
                         </md-layout>
-                    </h3>
                 </md-card-header-text>
             </md-card-header>
             <md-speed-dial md-open="hover" md-direction="bottom" class="md-fab-top-right" md-theme="default" v-if="$store.state.user">

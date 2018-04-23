@@ -6,7 +6,7 @@ import router from '../router'
 import events from '../events'
 
 export default class Project {
-    constructor (name, id, type) {
+    constructor (name, id, type, repo) {
         this.name = name
         this.id = id
         this.builds = []
@@ -19,6 +19,7 @@ export default class Project {
         this.numQueuedJobs = 0
         this.numScheduledJobs = 0
         this.numRunningJobs = 0
+        this.repo = repo
     }
 
     isGit () {
