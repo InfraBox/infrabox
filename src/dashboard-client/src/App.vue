@@ -7,7 +7,7 @@
                 <md-icon>menu</md-icon>
             </md-button>
             <div style="width: 110px">
-                <a href="http://infrabox.net">
+                <a href="/">
                     <img src="../static/logo_white_on_transparent.png" style="flex: 1" />
                 </a>
             </div>
@@ -71,7 +71,7 @@
                 </md-list-item>
 
                 <md-list-item class="navi-link">
-                    <a href="https://github.com/InfraBox/infrabox/issues"
+                    <a :href="$store.state.settings.INFRABOX_GENERAL_REPORT_ISSUE_URL"
                        class="md-list-item-container md-button"
                        target="_blank" @click="toggleLeftSidenav()">
                         <md-icon><i class="fa fa-bug fa-fw"></i></md-icon>
@@ -120,6 +120,7 @@
 import store from './store'
 import router from './router'
 import Disconnect from './components/utils/Disconnect'
+import UserService from './services/UserService'
 
 export default {
     name: 'app',
@@ -134,8 +135,8 @@ export default {
             router.push('/login')
         },
         logout () {
+            UserService.logout()
             this.toggleLeftSidenav()
-            document.cookie = 'token=; expires=Thu, 01 Jan 1970 00:00:01 GMT; path=/; Max-Age=0'
             router.push('/login')
         }
     },
