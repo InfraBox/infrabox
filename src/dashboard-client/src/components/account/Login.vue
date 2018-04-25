@@ -24,7 +24,7 @@
                         <md-button :disabled="!mailValid || !pwValid" class="md-raised md-primary" @click="login"><i class="fa fa-fw fa-sign-in"></i><span> Login</span></md-button>
                     </md-card-content>
                 </md-card-area>
-                <md-card-content class="m-xl" v-if="$store.state.settings.INFRABOX_GITHUB_ENABLED || $store.state.settings.INFRABOX_ACCOUNT_SIGNUP_ENABLED">
+                <md-card-content class="m-xl" v-if="$store.state.settings.INFRABOX_GITHUB_ENABLED || $store.state.settings.INFRABOX_GITLAB_ENABLED || $store.state.settings.INFRABOX_ACCOUNT_SIGNUP_ENABLED">
                     <h3 class="md-subheading">Don't have an InfraBox account?</h3>
                     <div class=" m-b-md"></div>
                     <md-button @click="loginGithub()"
@@ -34,7 +34,15 @@
                         <i class="fa fa-fw fa-github"></i>
                         <span> Login with GitHub</span>
                     </md-button>
+                    <md-button @click="loginGitlab()"
+                        v-if="$store.state.settings.INFRABOX_GITLAB_LOGIN_ENABLED"
+                        md-theme="default"
+                        class="md-raised md-primary">
+                        <span> Login with GitLab</span>
+                    </md-button>
                     <div v-if="$store.state.settings.INFRABOX_GITHUB_ENABLED && $store.state.settings.INFRABOX_ACCOUNT_SIGNUP_ENABLED">
+                    </div>
+                    <div v-if="$store.state.settings.INFRABOX_GITLAB_ENABLED && $store.state.settings.INFRABOX_ACCOUNT_SIGNUP_ENABLED">
                         <md-button disabled>or</md-button>
                     </div>
                     <md-button md-theme="default"
@@ -81,6 +89,9 @@ export default {
     methods: {
         loginGithub () {
             window.location.href = '/github/auth/'
+        },
+        loginGitlab () {
+            window.location.replace('http://localhost:8880/gitlab/auth')
         },
         signup () {
             router.push('signup')
