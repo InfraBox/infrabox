@@ -17,3 +17,9 @@ github = api.namespace('api/v1/github/',
 
 github_auth = api.namespace('github/',
                             description='GitHub Auth')
+
+gitlab = api.namespace('api/v1/gitlab/',
+                       description='GitLab')
+
+gitlab_auth = api.namespace('gitlab/',
+                            description='GitLab Auth')
