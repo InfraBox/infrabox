@@ -42,9 +42,19 @@ services:
             - INFRABOX_ACCOUNT_SIGNUP_ENABLED=true
             - INFRABOX_ACCOUNT_LDAP_ENABLED=false
             # Github
-            - INFRABOX_GITHUB_ENABLED=false
-            - INFRABOX_GITHUB_LOGIN_ENABLED=false
+            - INFRABOX_GITHUB_ENABLED=true
+            - INFRABOX_GITHUB_LOGIN_ENABLED=true
+            - INFRABOX_GITHUB_LOGIN_URL=https://github.com/login
+            - INFRABOX_GITHUB_API_URL=https://api.github.com
+            - INFRABOX_GITHUB_CLIENT_ID=andrewahapov
+            # Gitlab
+            - INFRABOX_GITLAB_ENABLED=true
+            - INFRABOX_GITLAB_LOGIN_ENABLED=true
+            - INFRABOX_GITLAB_API_URL=http://localhost:1357/api/v3
+            - INFRABOX_GITLAB_LOGIN_URL=http://localhost:1357/users/sign_in
+            - INFRABOX_GITLAB_OAUTH_URL=http://localhost:1357/oauth/authorize
+            - INFRABOX_GITLAB_APPLICATION_ID=5dbbd5871a4c1fee17783c24bde94bc5b2ca86b5c3b76e485f131e765a0d715e
+            - INFRABOX_GITLAB_APPLICATION_SECRET=f45c7cf0a894f220d1d5893785c9080a9c123fdab23aebbc34c87aac1a9273cd
         links:
             - postgres
             - minio
-
