@@ -29,17 +29,28 @@ class UserService {
                                    d.avatar_url,
                                    d.name,
                                    d.email,
-                                   d.github_id)
+                                   d.github_id,
+                                   d.gitlab_id)
                 store.commit('setUser', u)
 
                 if (u.hasGithubAccount() && store.state.settings.INFRABOX_GITHUB_ENABLED) {
-                    return NewAPIService.get('github/repos/')
+                    NewAPIService.get('github/repos/')
+                    .then((d) => {
+                        if (d) {
+                            store.commit('setGithubRepos', d)
+                        }
+                    })
+                }
+                if (u.hasGitlabAccount() && store.state.settings.INFRABOX_GITLAB_ENABLED) {
+                    NewAPIService.get('gitlab/projects/')
+                    .then((d) => {
+                        if (d) {
+                            store.commit('setGitlabRepos', d)
+                        }
+                    })
                 }
             })
-            .then((d) => {
-                if (d) {
-                    store.commit('setGithubRepos', d)
-                }
+            .then(() => {
                 ProjectService.init()
             })
             .catch(() => {

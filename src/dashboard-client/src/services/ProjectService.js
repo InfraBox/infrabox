@@ -21,8 +21,8 @@ class ProjectService {
             })
     }
 
-    addProject (name, priv, type, githubRepoName) {
-        const d = { name: name, type: type, private: priv, github_repo_name: githubRepoName }
+    addProject (name, priv, type, repoName, remoteProjectId) {
+        const d = { name: name, type: type, private: priv, repo_name: repoName, remote_id: remoteProjectId }
         return NewAPIService.post('projects', d)
             .then((response) => {
                 NotificationService.$emit('NOTIFICATION', new Notification(response))

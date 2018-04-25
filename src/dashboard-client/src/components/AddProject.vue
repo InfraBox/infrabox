@@ -22,6 +22,9 @@
                           <md-button v-if="$store.state.settings.INFRABOX_GITHUB_ENABLED" @click="type = 'github'">
                             <i class="fa fa-fw fa-github"></i><span> GitHub</span>
                           </md-button>
+                          <md-button v-if="$store.state.settings.INFRABOX_GITLAB_ENABLED" @click="type = 'gitlab'">
+                            <span> GitLab</span>
+                          </md-button>
 
                           <md-button v-if="$store.state.settings.INFRABOX_GERRIT_ENABLED" @click="type = 'gerrit'">
                             <i class="fa fa-fw fa-binoculars"></i><span> Gerrit</span>
@@ -38,8 +41,14 @@
                     <div v-if="type=='github'" class="p-t-md">
                         <h3>Select the GitHub repository to connect</h3>
                     </div>
+                    <div v-if="type=='gitlab'" class="p-t-md">
+                        <h3>Select the GitLab repository to connect</h3>
+                    </div>
                     <div v-if="$store.state.user && !$store.state.user.hasGithubAccount() && type=='github'">
                         <md-button @click="connectGithubAccount()">Connect GitHub Account</md-button>
+                    </div>
+                    <div v-if="$store.state.user && !$store.state.user.hasGitlabAccount() && type=='gitlab'">
+                        <md-button @click="connectGitLabAccount()">Connect GitLab Account</md-button>
                     </div>
                     <div v-if="$store.state.user && $store.state.user.hasGithubAccount() && type=='github'" class="md-layout md-gutter">
                         <md-table-card class="clean-card full-width m-b-xl m-t-lg">
@@ -68,6 +77,40 @@
                                         <md-table-cell>{{ r.forks_count }}</md-table-cell>
                                         <md-table-cell>
                                             <md-radio md-theme="default" v-model="selectRepo" :md-value="index" @change="selectGithubRepo(r)"></md-radio>
+                                        </md-table-cell>
+                                    </md-table-row>
+                                </md-table-body>
+                            </md-table>
+                        </md-table-card>
+                    </div>
+                    <div v-if="$store.state.user && $store.state.user.hasGitlabAccount() && type=='gitlab'" class="md-layout md-gutter">
+                        <md-table-card class="clean-card full-width m-b-xl m-t-lg">
+                            <md-table md-sort="repos">
+                                <md-table-header>
+                                    <md-table-row>
+                                    <md-table-head md-sort-by="repository">Repository</md-table-head>
+                                    <md-table-head md-sort-by="owner">Owner</md-table-head>
+                                    <md-table-head md-sort-by="privacy">Visibility</md-table-head>
+                                    <md-table-head md-sort-by="created">Created</md-table-head>
+                                    <md-table-head md-sort-by="issues">Open Issues</md-table-head>
+                                    <md-table-head md-sort-by="forks">Forks</md-table-head>
+                                    <md-table-head>Select</md-table-head>
+                                    </md-table-row>
+                                </md-table-header>
+                                <md-table-body>
+                                    <md-table-row v-for="(r, index) of $store.state.user.gitlabRepos" :key="r.id">
+                                        <md-table-cell class="md-body-2">{{ r.name }}</md-table-cell>
+                                        <md-table-cell>{{ r.id }}</md-table-cell>
+                                        <md-table-cell>{{ r.owner.name }}</md-table-cell>
+                                        <md-table-cell>
+                                            <i v-if="r.private" class="fa fa-fw fa-home fa-2x"></i>
+                                            <i v-if="!r.private" class="fa fa-fw fa-globe fa-2x"></i>
+                                        </md-table-cell>
+                                        <md-table-cell><ib-date :date="r.created_at"></ib-date></md-table-cell>
+                                        <md-table-cell>{{ r.open_issues_count }}</md-table-cell>
+                                        <md-table-cell>{{ r.forks_count }}</md-table-cell>
+                                        <md-table-cell>
+                                            <md-radio md-theme="default" v-model="selectRepo" :md-value="index" @change="selectGitlabRepo(r)"></md-radio>
                                         </md-table-cell>
                                     </md-table-row>
                                 </md-table-body>
@@ -108,6 +151,7 @@ export default {
         type: 'upload',
         priv: true,
         githubRepo: null,
+        gitlabRepo: null,
         invalidMessage: 'Name required',
         selectRepo: false
     }),
@@ -126,17 +170,28 @@ export default {
     methods: {
         addProject () {
             let repoName = ''
+            let remoteProjectId = 0
             if (this.githubRepo) {
                 repoName = this.githubRepo.owner.login + '/' + this.githubRepo.name
+                remoteProjectId = this.gitlabRepo.id
+            } else if (this.gitlabRepo) {
+                repoName = this.gitlabRepo.owner.name + '/' + this.gitlabRepo.name
+                remoteProjectId = this.gitlabRepo.id
             }
 
-            ProjectService.addProject(this.projName, this.priv, this.type, repoName)
+            ProjectService.addProject(this.projName, this.priv, this.type, repoName, remoteProjectId)
         },
         selectGithubRepo (r) {
             this.githubRepo = r
         },
+        selectGitlabRepo (r) {
+            this.gitlabRepo = r
+        },
         connectGithubAccount () {
             window.location.href = '/github/auth/connect'
+        },
+        connectGitlabAccount () {
+            window.location.href = '/gitlab/auth/connect'
         }
     }
 }

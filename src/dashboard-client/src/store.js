@@ -202,6 +202,10 @@ function setGithubRepos (state, repos) {
     state.user.githubRepos = repos
 }
 
+function setGitlabRepos (state, repos) {
+    state.user.gitlabRepos = repos
+}
+
 function setSettings (state, settings) {
     state.settings = settings
 }
@@ -276,6 +280,7 @@ const mutations = {
     handleJobUpdate,
     setUser,
     setGithubRepos,
+    setGitlabRepos,
     handleConsoleUpdate,
     deleteProject,
     setSettings,
