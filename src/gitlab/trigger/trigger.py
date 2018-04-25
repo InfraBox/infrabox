@@ -10,52 +10,26 @@ from pyinfraboxutils.db import connect_db
 
 from bottle import post, run, request, response, install, get
 
-logger = get_logger("github")
+logger = get_logger("gitlab")
+
+
+def remove_ref(ref):
+    return "/".join(ref.split("/")[2:])
+
 
 def res(status, message):
     response.status = status
     return {"message": message}
 
-def remove_ref(ref):
-    return "/".join(ref.split("/")[2:])
-
-def get_next_page(r):
-    link = r.headers.get('Link', None)
-
-    if not link:
-        return None
-
-    n1 = link.find('rel=\"next\"')
-
-    if not n1:
-        return None
-
-    n2 = link.rfind('<', 0, n1)
-
-    if not n2:
-        return None
-
-    n2 += 1
-    n3 = link.find('>;', n2)
-    return link[n2:n3]
-
 
 def get_commits(url, token):
     headers = {
-        "Authorization": "token " + token,
-        "User-Agent": "InfraBox"
+        "Private-Token:" + token
     }
 
-    # TODO(ib-steffen): allow custom ca bundles
-    r = requests.get(url + '?per_page=100', headers=headers, verify=False)
+    r = requests.get(url, headers=headers, verify=False)
     result = []
     result.extend(r.json())
-
-    p = get_next_page(r)
-    while p:
-        r = requests.get(p, headers=headers, verify=False)
-        p = get_next_page(r)
-        result.extend(r.json())
 
     return result
 
@@ -78,14 +52,14 @@ class Trigger(object):
 
     def get_owner_token(self, repo_id):
         return self.execute('''
-            SELECT github_api_token FROM "user" u
+            SELECT gitlab_api_token FROM "user" u
             INNER JOIN collaborator co
                 ON co.user_id = u.id
                 AND co.owner = true
             INNER JOIN project p
                 ON co.project_id = p.id
             INNER JOIN repository r
-                ON r.github_id = %s
+                ON r.gitlab_id = %s
                 AND r.project_id = p.id
         ''', [repo_id])[0][0]
 
@@ -104,11 +78,11 @@ class Trigger(object):
         build_id = result[0][0]
         return build_id
 
-    def create_job(self, commit_id, clone_url, build_id, project_id, github_private_repo, branch, env=None, fork=False):
+    def create_job(self, commit_id, clone_url, build_id, project_id, gitlab_private_repo, branch, env=None, fork=False):
         git_repo = {
             "commit": commit_id,
             "clone_url": clone_url,
-            "github_private_repo": github_private_repo,
+            "gitlab_private_repo": gitlab_private_repo,
             "branch": branch,
             "fork": fork
         }
@@ -121,19 +95,18 @@ class Trigger(object):
                     'Create Jobs', %s, false, '', 1, 1024, %s, %s)
         ''', [build_id, project_id, json.dumps(git_repo), env], fetch=False)
 
-
     def create_push(self, c, repository, branch, tag):
-        if not c['distinct']:
-            return
+        #if not c['distinct']:
+        #    return
 
         result = self.execute('''
             SELECT id, project_id, private
             FROM repository
-            WHERE github_id = %s''', [repository['id']])[0]
+            WHERE gitlab_id = %s''', [repository['id']])[0]
 
         repo_id = result[0]
         project_id = result[1]
-        github_repo_private = result[2]
+        gitlab_repo_private = result[2]
         commit_id = None
 
         result = self.execute('''
@@ -146,7 +119,7 @@ class Trigger(object):
         commit_id = c['id']
 
         if not result:
-            status_url = repository['statuses_url'].format(sha=c['id'])
+            status_url = repository['web_url'].format(sha=c['id'])
             result = self.execute('''
                 INSERT INTO "commit" (
                     id, message, repository_id, timestamp,
@@ -180,15 +153,16 @@ class Trigger(object):
                 UPDATE "commit" SET tag = %s WHERE id = %s AND project_id = %s
             ''', [tag, c['id'], project_id], fetch=False)
 
-
         build_id = self.create_build(commit_id, project_id)
-        self.create_job(c['id'], repository['clone_url'], build_id,
-                        project_id, github_repo_private, branch)
+        self.create_job(c['id'], repository['git_http_url'], build_id,
+                        project_id, gitlab_repo_private, branch)
 
     def handle_push(self, event):
+        result_all = self.execute('''
+                    SELECT gitlab_id FROM repository''')
         result = self.execute('''
-            SELECT project_id FROM repository WHERE github_id = %s;
-        ''', [event['repository']['id']])[0]
+            SELECT project_id FROM repository WHERE gitlab_id = %s;
+        ''', [event['project_id']])
 
         project_id = result[0]
 
@@ -203,37 +177,37 @@ class Trigger(object):
         tag = None
         commit = None
 
-        if event.get('base_ref', None):
-            branch = remove_ref(event['base_ref'])
-
         ref = event['ref']
         if ref.startswith('refs/tags'):
             tag = remove_ref(ref)
-            commit = event['head_commit']
+            if event['total_commits_count'] > 0:
+                commit = event['commits'][0]
         else:
             branch = remove_ref(ref)
             if event['commits']:
                 commit = event['commits'][-1]
 
-        token = self.get_owner_token(event['repository']['id'])
+        token = self.get_owner_token(event['project_id'])
 
         if not token:
             return res(200, 'no token')
 
         if commit:
-            self.create_push(commit, event['repository'], branch, tag)
+            commit['committer'] = {'name': event.get('user_name', None),
+                                   'email': event.get('user_email', None),
+                                   'username': event.get('user_username', None)}
+            self.create_push(commit, event['project'], branch, tag)
 
         self.conn.commit()
         return res(200, 'ok')
-
 
     def handle_pull_request(self, event):
         if event['action'] not in ['opened', 'reopened', 'synchronize']:
             return
 
         result = self.execute('''
-            SELECT id, project_id, private FROM repository WHERE github_id = %s;
-        ''', [event['repository']['id']])
+            SELECT id, project_id, private FROM repository WHERE gitlab_id = %s;
+        ''', [event['project_id']])
 
         if not result:
             return res(404, "Unknown repository")
@@ -242,7 +216,7 @@ class Trigger(object):
 
         repo_id = result[0]
         project_id = result[1]
-        github_repo_private = result[2]
+        gitlab_repo_private = result[2]
 
         result = self.execute('''
             SELECT build_on_push FROM project WHERE id = %s;
@@ -251,11 +225,10 @@ class Trigger(object):
         if not result[0]:
             return res(200, 'build_on_push not set')
 
-        token = self.get_owner_token(event['repository']['id'])
+        token = self.get_owner_token(event['project_id'])
 
         if not token:
             return res(200, 'no token')
-
 
         commits = get_commits(event['pull_request']['commits_url'], token)
 
@@ -285,7 +258,7 @@ class Trigger(object):
                   event['pull_request']['id'],
                   event['pull_request']['title'],
                   event['pull_request']['html_url']
-                 ])
+                  ])
             pr_id = result[0][0]
 
         result = self.execute('''
@@ -333,7 +306,7 @@ class Trigger(object):
             build_id = self.create_build(commit_id, project_id)
             self.create_job(event['pull_request']['head']['sha'],
                             event['pull_request']['head']['repo']['clone_url'],
-                            build_id, project_id, github_repo_private, branch, env=env, fork=is_fork)
+                            build_id, project_id, gitlab_repo_private, branch, env=env, fork=is_fork)
 
             self.conn.commit()
 
@@ -343,37 +316,39 @@ class Trigger(object):
 def sign_blob(key, blob):
     return 'sha1=' + hmac.new(key, blob, hashlib.sha1).hexdigest()
 
-@post('/github/hook')
+
+@post('/gitlab/hook')
 def trigger_build(conn):
     headers = dict(request.headers)
 
-    if 'X-Github-Event' not in headers:
-        return res(400, "X-Github-Event not set")
+    if 'X-Gitlab-Event' not in headers:
+        return res(400, "X-Gitlab-Event not set")
 
-    if 'X-Hub-Signature' not in headers:
-        return res(400, "X-Hub-Signature not set")
+    if 'X-Gitlab-Token' not in headers:
+        return res(400, "X-Gitlab-Token not set")
 
-    event = headers['X-Github-Event']
-    sig = headers['X-Hub-Signature']
+    event = headers['X-Gitlab-Event']
+    hook_token = headers['X-Gitlab-Token']
     #pylint: disable=no-member
     body = request.body.read()
-    secret = get_env('INFRABOX_GITHUB_WEBHOOK_SECRET')
-    signed = sign_blob(secret, body)
+    secret = get_env('INFRABOX_GITLAB_WEBHOOK_SECRET')
+    #signed = sign_blob(secret, body)
 
-    if signed != sig:
-        return res(400, "X-Hub-Signature does not match blob signature")
+    if secret != hook_token:
+        return res(400, "X-Gitlab-Token does not match blob signature")
 
     trigger = Trigger(conn)
-    if event == 'push':
+    if event == 'Push Hook':
         return trigger.handle_push(request.json)
-    elif event == 'pull_request':
-        return trigger.handle_pull_request(request.json)
+    #elif event == 'pull_request':
+    #    return trigger.handle_pull_request(request.json)
 
     return res(200, "OK")
 
 @get('/ping')
 def ping():
     return res(200, "OK")
+
 
 def main():
     get_env('INFRABOX_SERVICE')
@@ -383,12 +358,13 @@ def main():
     get_env('INFRABOX_DATABASE_PASSWORD')
     get_env('INFRABOX_DATABASE_HOST')
     get_env('INFRABOX_DATABASE_PORT')
-    get_env('INFRABOX_GITHUB_WEBHOOK_SECRET')
+    get_env('INFRABOX_GITLAB_WEBHOOK_SECRET')
 
-    connect_db() # Wait until DB is ready
+    connect_db()  # Wait until DB is ready
 
     install(InfraBoxPostgresPlugin())
     run(host='0.0.0.0', port=8080)
+
 
 if __name__ == '__main__':
     main()
