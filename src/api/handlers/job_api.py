@@ -82,7 +82,8 @@ class Job(Resource):
                 j.deployment,
                 j.security_context,
                 b.restart_counter,
-                j.definition
+                j.definition,
+                u.gitlab_api_token
             FROM job j
             INNER JOIN build b
                 ON j.build_id = b.id
@@ -138,6 +139,7 @@ class Job(Resource):
             "owner": r[11],
             "name": None,
             "github_api_token": r[10],
+            "gitlab_api_token": r[30],
             "private": False
         }
 
@@ -147,7 +149,7 @@ class Job(Resource):
         }
 
         pull_request_id = None
-        if data['project']['type'] == 'github' or data['project']['type'] == 'gerrit':
+        if data['project']['type'] == 'github' or data['project']['type'] == 'gitlab' or data['project']['type'] == 'gerrit':
             r = g.db.execute_one('''
                 SELECT
                     r.clone_url, r.name, r.private
