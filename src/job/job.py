@@ -115,7 +115,7 @@ class RunJob(Job):
                 }
             }
 
-            if self.project['type'] == 'github':
+            if self.project['type'] == 'github' or self.project['type'] =='gitlab':
                 o['commit'] = {}
                 o['commit']["branch"] = self.commit['branch']
                 o['commit']["id"] = self.commit['id']
@@ -191,7 +191,15 @@ class RunJob(Job):
             repo = self.job['repo']
             clone_url = repo['clone_url']
             branch = repo.get('branch', None)
-            private = repo.get('github_private_repo', False)
+
+            # --- Temp workaround ---
+            private = False
+            if self.project['type'] == 'github':
+                private = repo.get('github_private_repo', False)
+            elif self.project['type'] == 'gitlab':
+                private = repo.get('gitlab_private_repo', False)
+            # ---
+
             clone_all = repo.get('clone_all', False)
             ref = repo.get('ref', None)
 
@@ -213,8 +221,12 @@ class RunJob(Job):
                 return
 
             if private:
-                clone_url = clone_url.replace('github.com',
+                if self.project['type'] == 'github':
+                    clone_url = clone_url.replace('github.com',
                                               '%s@github.com' % self.repository['github_api_token'])
+                elif self.project['type'] == 'gitlab':
+                    clone_url = clone_url.replace('://',
+                                                  '://oauth2:%s@' % self.repository['gitlab_api_token'])
 
             self.clone_repo(commit, clone_url, branch, ref, clone_all, submodules=repo_submodules)
         elif self.project['type'] == 'upload':
