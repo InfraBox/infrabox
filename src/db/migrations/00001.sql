@@ -58,6 +58,7 @@ CREATE TYPE markup_type AS ENUM (
 
 CREATE TYPE project_type AS ENUM (
     'github',
+    'gitlab',
     'upload',
     'test',
     'gerrit'
@@ -153,7 +154,8 @@ CREATE TABLE commit (
     project_id uuid,
     tag character varying(255),
     pull_request_id uuid,
-    github_status_url character varying(1024)
+    github_status_url character varying(1024),
+    gitlab_status_url character varying(1024)
 );
 
 --
@@ -276,6 +278,7 @@ CREATE TABLE pull_request (
     project_id uuid NOT NULL,
     title character varying(255) NOT NULL,
     github_pull_request_id integer NOT NULL,
+    gitlab_pull_request_id integer NOT NULL,
     url character varying NOT NULL
 );
 
@@ -292,6 +295,9 @@ CREATE TABLE repository (
     github_id integer,
     github_hook_id integer,
     github_owner character varying(255),
+    gitlab_id integer,
+    gitlab_hook_id integer,
+    gitlab_owner character varying(255),
     project_id uuid NOT NULL,
     private boolean NOT NULL
 );
@@ -357,12 +363,14 @@ CREATE TABLE test_run (
 CREATE TABLE "user" (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     github_id integer,
+    gitlab_id integer,
     username character varying(255),
     avatar_url character varying(255),
     name character varying(255),
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     email character varying(255),
     github_api_token character varying,
+    gitlab_api_token character varying,
     password character varying(255)
 );
 
@@ -686,7 +694,7 @@ BEGIN
 	);
 
 	SELECT * INTO project FROM project WHERE id = NEW.project_id;
-	IF project.type in ('github', 'gerrit') THEN
+	IF project.type in ('github', 'gerrit', 'gitlab') THEN
 		-- create commit json
 		SELECT json_build_object(
 			'id', c.id,
