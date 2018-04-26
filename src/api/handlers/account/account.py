@@ -1,3 +1,4 @@
+import os
 from email.utils import parseaddr
 
 from flask import g, request, abort
@@ -12,7 +13,6 @@ from pyinfraboxutils.ibrestplus import api
 from pyinfraboxutils.token import encode_user_token
 
 from api.namespaces import account as ns
-
 
 login_model = api.model('Login', {
     'email': fields.String(required=True),
@@ -61,6 +61,9 @@ class Register(Resource):
 
     @api.expect(register_model)
     def post(self):
+        if os.environ['INFRABOX_ACCOUNT_SIGNUP_ENABLED'] != 'true':
+            abort(404)
+
         b = request.get_json()
 
         email = b['email']

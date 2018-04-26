@@ -28,7 +28,7 @@ The job type docker is one of the most important jobs. You can use it to run any
         "resources": { "limits": { "cpu": 1, "memory": 1024 } },
         "build_only": false,
         "build_context": "...",
-        "catche": { ... },
+        "cache": { ... },
         "timeout": 3600,
         "depends_on": ["other_job_name"],
         "environment": { ... },
@@ -47,13 +47,14 @@ The job type docker is one of the most important jobs. You can use it to run any
 |docker_file|true|string||Path to the `Dockerfile`|
 |resources|true|[Resource Configuration](#resource-configuration)||Specify the required resources for your job|
 |build_only|true|boolean|true|If set to true the container will only be build but not run. Use it if you only want to build a container and push it to a registry. See here for how to push to a docker registry.|
-|build_context|false|string||Specify the docker build context. If not set the directory container the `infrabox.json` file will be used.|
+|build_context|false|string||Specify the docker build context. If not set the directory containing the `infrabox.json` file will be used.|
 |cache|false|[Cache Configuration](#cache-configuration)|{}|Configure the caching behavior|
 |timeout|false|integer|3600|Timeout in seconds after which the job should be killed. Timeout starts when the job is set to running|
-|depends_on|false|[Dependency Configuration](#job-dependencies)|[]|Jobs may have dependencies. You can list all jobs which should finish before the current job may be executed.|
+|depends_on|false|[Dependency Configuration](#dependency-configuration)|[]|Jobs may have dependencies. You can list all jobs which should finish before the current job may be executed.|
 |environment|false|object|{}|Can be used to set environment variables for the job. See Environment Variables for more details.|
 |build_arguments|false|object|{}|Can be used to set docker build arguments. See Build Arguments for more details.|
 |deployments|false|[Deployment Configuration](#deployments)|[]|Push your images to a registry|
+|security_context|false|[Security Context](#security_context)|[]|Configure security related options|
 |repository|false|[Repository Configuration](#repository)|{}|Configure git repository options|
 
 ### Deployments
@@ -125,6 +126,46 @@ Build arguments are only supported for `docker` job types.
 |clone|false|boolean|true|Set to `false` if the git repository should not be cloned|
 |submodules|false|boolean|false|Set to `true` if submodules should be cloned|
 
+## Job: Docker Image
+You can also specify an already build image and run it as a job.
+
+```json
+{
+    "version": 1,
+    "jobs": [{
+        "type": "docker-image",
+        "name": "test",
+        "image": "alpine:latest",
+        "command": ["echo", "hello world"]
+        "resources": { "limits": { "cpu": 1, "memory": 1024 } },
+        "build_context": "...",
+        "cache": { ... },
+        "timeout": 3600,
+        "depends_on": ["other_job_name"],
+        "environment": { ... },
+        "security_context": { ... },
+        "repository": { ... }
+    }]
+}
+```
+
+| Name | Required | Type | Default | Description |
+|------|----------|------|---------|-------------|
+|type|true|string||Has to be "docker" to run a single Docker container|
+|name|true|string||Name of the job|
+|image|true|string||Image to use, i.e. `alpine:latest`|
+|command|true|string||The command in [exec form](https://docs.docker.com/engine/reference/builder/#cmd)|
+|resources|true|[Resource Configuration](#resource-configuration)||Specify the required resources for your job|
+|build_context|false|string||Specify the docker build context. If not set the directory containing the `infrabox.json` file will be used.|
+|cache|false|[Cache Configuration](#cache-configuration)|{}|Configure the caching behavior|
+|timeout|false|integer|3600|Timeout in seconds after which the job should be killed. Timeout starts when the job is set to running|
+|depends_on|false|[Dependency Configuration](#dependency-configuration)|[]|Jobs may have dependencies. You can list all jobs which should finish before the current job may be executed.|
+|environment|false|object|{}|Can be used to set environment variables for the job. See Environment Variables for more details.|
+|deployments|false|[Deployment Configuration](#deployments)|[]|Push your images to a registry|
+|security_context|false|[Security Context](#security_context)|[]|Configure security related options|
+|repository|false|[Repository Configuration](#repository)|{}|Configure git repository options|
+
+
 ## Job: Docker-Compose
 Sometimes you want to start multiple containers to test your application. For this InfraBox supports also docker-compose. You can specify a docker-compose.yml and InfraBox will start it as one job.
 
@@ -165,7 +206,7 @@ An example git job definition:
     "jobs": [{
         "type": "git",
         "name": "some-external-jobs",
-        "git_url": "https://github.com/InfraBox/examples.git",
+        "clone_url": "https://github.com/InfraBox/examples.git",
         "commit": "master",
         "depends_on": [ ... ],
         "environment": { ... },
@@ -208,6 +249,23 @@ An example job definition:
 |infrabox_file|true|string||Path to another `infrabox.json` file|
 |depends_on|false|array of job names|[]|Jobs may have dependencies. You can list all jobs which should finish before the current job may be executed.|
 
+## Security Context
+
+```json
+{
+    "version": 1,
+    "jobs": [{
+        ...
+        "security_context": {
+            "privileged": false
+        }
+    }]
+}
+```
+
+| Name | Required | Type | Default | Description |
+|------|----------|------|---------|-------------|
+|privileged|false|boolean|false|If set to true the container will be run in privileged mode|
 
 ## Cache Configuration
 InfraBox can cache custom data and images for you. This can significantly speed up your jobs. You can control the caching behavior with
@@ -219,7 +277,8 @@ InfraBox can cache custom data and images for you. This can significantly speed 
         ...
         "cache": {
             "data": true,
-            "image": true
+            "image": false,
+            "after_image": false
         }
     }]
 }
@@ -229,6 +288,7 @@ InfraBox can cache custom data and images for you. This can significantly speed 
 |------|----------|------|---------|-------------|
 |data|false|boolean|`true`|If set to false the content of /infrabox/cache will not be restored|
 |image|false|boolean|`false`|If set to true the images of each job will be cached in an internal registry.|
+|after_image|false|boolean|`false`|If set to true InfraBox will run a `docker commit` after the `docker run` and upload the image. Set this to true if you want to later download the image and run it locally with `infrabox pull`.|
 
 Sometimes it's useful to keep some data from one run of a container to the next one. Maybe you have a nodejs project and don't want to install your dependencies every time. For such uses cases InfraBox mounts the directory `/infrabox/cache` into every container. Everything which you store in this directory will be available at the same place in the next run. So for your nodejs project you could simply copy your node_modules directory in there.
 
@@ -331,6 +391,30 @@ To model dependencies between jobs you simply use `depends_on` in the job defini
 ```
 Jobs `A` and `B` would start in parallel and `C` would only start if `A` and `B` succeeded successfully. If either of the parent jobs failed `C` would not be started at all. You may use dependencies with all available job types.
 
+It's also possible to specify the required job state of the parent. So if you want to run the child job only if the parent has failed you can do:
+
+```json
+{
+    "version": 1,
+    "jobs": [{
+        "name": "A",
+        ...
+    }, {
+        "name": "B",
+        ...
+        "depends_on": [{"job": "A", "on": ["failure"]}]
+    }]
+}
+```
+
+Possible values for `on` are:
+- `failure`
+- `finished`
+- `error`
+- `*`  results in all -> `failed`, `finished`, `error`
+
+So if you have a cleanup job which you want to run allways, independent of the parent state, use `*`.
+
 ### Transfer data between jobs
 
 If you have defined dependencies between your jobs you can also transfer data between them. The parent job may produce some output which the child job may access.
@@ -390,4 +474,7 @@ InfraBox can store secret values for you, so you don't have to store passwords o
 
 - [Environment Variable](#environment-variables)
 - [Docker Registry Passwird](#deployments)
+
+# Archive
+Sometimes it's helpful to store some files for later access. Every file you write to `/infrabox/upload/archive` will later be accessible in the Dashboard for the job.
 

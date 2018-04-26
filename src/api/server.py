@@ -71,17 +71,14 @@ def main(): # pragma: no cover
 
     get_env('INFRABOX_JOB_MAX_OUTPUT_SIZE')
     get_env('INFRABOX_JOB_SECURITY_CONTEXT_CAPABILITIES_ENABLED')
+    get_env('INFRABOX_GENERAL_REPORT_ISSUE_URL')
 
     if get_env('INFRABOX_STORAGE_GCS_ENABLED') == 'true':
         get_env('GOOGLE_APPLICATION_CREDENTIALS')
-        get_env('INFRABOX_STORAGE_GCS_CONTAINER_CONTENT_CACHE_BUCKET')
-        get_env('INFRABOX_STORAGE_GCS_CONTAINER_OUTPUT_BUCKET')
-        get_env('INFRABOX_STORAGE_GCS_PROJECT_UPLOAD_BUCKET')
+        get_env('INFRABOX_STORAGE_GCS_BUCKET')
 
     if get_env('INFRABOX_STORAGE_S3_ENABLED') == 'true':
-        get_env('INFRABOX_STORAGE_S3_CONTAINER_CONTENT_CACHE_BUCKET')
-        get_env('INFRABOX_STORAGE_S3_CONTAINER_OUTPUT_BUCKET')
-        get_env('INFRABOX_STORAGE_S3_PROJECT_UPLOAD_BUCKET')
+        get_env('INFRABOX_STORAGE_S3_BUCKET')
         get_env('INFRABOX_STORAGE_S3_REGION')
 
     app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024 * 4
@@ -254,7 +251,7 @@ def main(): # pragma: no cover
     sio.start_background_task(listeners.job.listen, sio)
     sio.start_background_task(listeners.console.listen, sio, client_manager)
 
-    port = int(os.environ.get('INFRABOX_PORT', 8080))
+    port = int(os.environ.get('INFRABOX_PORT', 8880))
     logger.info('Starting Server on port %s', port)
     sio.run(app, host='0.0.0.0', port=port)
 

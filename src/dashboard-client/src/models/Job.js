@@ -72,7 +72,7 @@ class Section {
 export default class Job {
     constructor (id, name, cpu, memory, state,
             startDate, endDate, build, project,
-            dependencies, message) {
+            dependencies, message, definition) {
         this.id = id
         this.name = name
         this.cpu = cpu
@@ -88,9 +88,11 @@ export default class Job {
         this.tests = []
         this.stats = []
         this.tabs = []
+        this.archive = []
         this.currentSection = null
         this.linesProcessed = 0
         this.message = message
+        this.definition = definition
     }
 
     _getTime (d) {
@@ -152,14 +154,6 @@ export default class Job {
 
         if (this.currentSection) {
             this.currentSection.generateHtml()
-
-            if (this.state === 'failed' ||
-                this.state === 'finished' ||
-                this.state === 'error' ||
-                this.state === 'aborted' ||
-                this.state === 'skipped') {
-                this.currentSection.setEndTime(new Date())
-            }
         }
     }
 
@@ -209,6 +203,16 @@ export default class Job {
             })
     }
 
+    loadArchive () {
+        return NewAPIService.get(`projects/${this.project.id}/jobs/${this.id}/archive`)
+            .then((archive) => {
+                store.commit('setArchive', { job: this, archive: archive })
+            })
+            .catch((err) => {
+                NotificationService.$emit('NOTIFICATION', new Notification(err))
+            })
+    }
+
     loadTests () {
         return NewAPIService.get(`projects/${this.project.id}/jobs/${this.id}/testruns`)
             .then((tests) => {
@@ -250,6 +254,11 @@ export default class Job {
         NewAPIService.openAPIUrl(url)
     }
 
+    downloadArchive (filename) {
+        const url = `projects/${this.project.id}/jobs/${this.id}/archive/download?filename=${filename}`
+        NewAPIService.openAPIUrl(url)
+    }
+
     listenConsole () {
         events.listenConsole(this.id)
     }
@@ -272,7 +281,6 @@ export default class Job {
     restart () {
         return NewAPIService.get(`projects/${this.project.id}/jobs/${this.id}/restart`)
             .then((message) => {
-                console.log(message)
                 NotificationService.$emit('NOTIFICATION', new Notification(message, 'done'))
 
                 this.sections = []

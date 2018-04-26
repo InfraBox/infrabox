@@ -14,7 +14,12 @@ const state = {
     user: null,
     projects: [],
     jobs: {},
-    settings: {}
+    settings: {},
+    admin: {
+        projects: [],
+        users: [],
+        clusters: []
+    }
 }
 
 function findProject (state, projectId) {
@@ -106,11 +111,11 @@ function handleJobUpdate (state, event) {
     let endDate = null
 
     if (d.start_date) {
-        startDate = new Date(d.start_date)
+        startDate = new Date(d.start_date.split('+')[0])
     }
 
     if (d.end_date) {
-        endDate = new Date(d.end_date)
+        endDate = new Date(d.end_date.split('+')[0])
     }
 
     if (!job) {
@@ -125,7 +130,8 @@ function handleJobUpdate (state, event) {
             build,
             project,
             d.dependencies,
-            d.message
+            d.message,
+            d.definition
         )
         build.jobs.push(job)
         state.jobs[d.id] = job
@@ -136,16 +142,6 @@ function handleJobUpdate (state, event) {
 
         if (d.message) {
             job.message = d.message
-        }
-
-        if (job.state === 'failed' ||
-            job.state === 'finished' ||
-            job.state === 'error' ||
-            job.state === 'aborted' ||
-            job.state === 'skipped') {
-            if (job.currentSection) {
-                job.currentSection.setEndDate(new Date())
-            }
         }
     }
 
@@ -162,6 +158,8 @@ function addProjects (state, projects) {
 
         p = new Project(project.name, project.id, project.type)
         state.projects.push(p)
+
+        state.projects = _.sortBy(state.projects, function (i) { return i.name.toLowerCase() })
 
         p._loadJobs()
     }
@@ -233,6 +231,12 @@ function setStats (state, data) {
     job.stats = stats
 }
 
+function setArchive (state, data) {
+    const job = data.job
+    const archive = data.archive
+    job.archive = archive
+}
+
 function setTabs (state, data) {
     const job = data.job
     const tabs = data.tabs
@@ -271,6 +275,18 @@ function deleteProject (state, projectId) {
     }
 }
 
+function setAdminUsers (state, users) {
+    state.admin.users = users
+}
+
+function setAdminProjects (state, projects) {
+    state.admin.projects = projects
+}
+
+function setClusters (state, clusters) {
+    state.admin.clusters = clusters
+}
+
 const mutations = {
     addProjects,
     addJobs,
@@ -288,7 +304,11 @@ const mutations = {
     setConsole,
     setTests,
     setStats,
-    setTabs
+    setTabs,
+    setAdminUsers,
+    setAdminProjects,
+    setClusters,
+    setArchive
 }
 
 const getters = {}

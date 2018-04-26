@@ -1,11 +1,15 @@
 import json
+import os
 
 from flask import g, abort, Response, send_file, request
 from flask_restplus import Resource
 
+from pyinfraboxutils import get_logger
 from pyinfraboxutils.ibflask import auth_required, OK
 from pyinfraboxutils.storage import storage
 from api.namespaces import project as ns
+
+logger = get_logger('api')
 
 @ns.route('/<project_id>/jobs/')
 class Jobs(Resource):
@@ -71,15 +75,16 @@ class Jobs(Resource):
                 -- job
                 j.id as job_id,
                 j.state as job_state,
-                j.start_date as job_start_date,
+                j.start_date::text as job_start_date,
                 j.type as job_type,
-                j.end_date as job_end_date,
+                j.end_date::text as job_end_date,
                 j.name as job_name,
                 j.cpu as job_cpu,
                 j.memory as job_memory,
                 j.dependencies as job_dependencies,
-                j.created_at as job_created_at,
+                j.created_at::text as job_created_at,
                 j.message as job_message,
+                j.definition as job_definition,
                 -- pull_request
                 pr.title as pull_request_title,
                 pr.url as pull_request_url
@@ -118,14 +123,15 @@ class Jobs(Resource):
                 'job': {
                     'id': j['job_id'],
                     'state': j['job_state'],
-                    'start_date': str(j['job_start_date']),
-                    'end_date': str(j['job_end_date']),
+                    'start_date': j['job_start_date'],
+                    'end_date': j['job_end_date'],
                     'name': j['job_name'],
                     'cpu': j['job_cpu'],
                     'memory': j['job_memory'],
                     'dependencies': j['job_dependencies'],
-                    'created_at': str(j['job_created_at']),
-                    'message': j['job_message']
+                    'created_at': j['job_created_at'],
+                    'message': j['job_message'],
+                    'definition': j['job_definition']
                 }
             }
 
@@ -175,7 +181,7 @@ class JobRestart(Resource):
     def get(self, project_id, job_id):
 
         job = g.db.execute_one_dict('''
-            SELECT state, type
+            SELECT state, type, build_id
             FROM job
             WHERE id = %s
             AND project_id = %s
@@ -186,16 +192,58 @@ class JobRestart(Resource):
 
         job_type = job['type']
         job_state = job['state']
+        build_id = job['build_id']
 
         if job_type not in ('run_project_container', 'run_docker_compose'):
             abort(400, 'Job type cannot be restarted')
 
-        if job_state not in ('error', 'failure', 'finished', 'killed'):
+        restart_states = ('error', 'failure', 'finished', 'killed')
+
+        if job_state not in restart_states:
             abort(400, 'Job in state %s cannot be restarted' % job_state)
 
-        g.db.execute('''
-            UPDATE job SET state = 'queued', console = null, message = null WHERE id = %s
-        ''', [job_id])
+        jobs = g.db.execute_many_dict('''
+            SELECT state, id, dependencies
+            FROM job
+            WHERE build_id = %s
+            AND project_id = %s
+        ''', [build_id, project_id])
+
+        restart_jobs = [job_id]
+
+        while True:
+            found = False
+            for j in jobs:
+                if j['id'] in restart_jobs:
+                    continue
+
+                if not j['dependencies']:
+                    continue
+
+                for dep in j['dependencies']:
+                    dep_id = dep['job-id']
+
+                    if dep_id in restart_jobs:
+                        found = True
+                        restart_jobs.append(j['id'])
+                        break
+
+            if not found:
+                break
+
+        for j in jobs:
+            if j['id'] not in restart_jobs:
+                continue
+
+            if j['state'] not in restart_states and j['state'] != 'skipped':
+                abort(400, 'Some children jobs are still running')
+
+        for j in restart_jobs:
+            g.db.execute('''
+                UPDATE job
+                SET state = 'queued', console = null, message = null
+                WHERE id = %s
+            ''', [j])
         g.db.commit()
 
         return OK('Successfully restarted job')
@@ -243,6 +291,44 @@ class Tabs(Resource):
         ''', [job_id, project_id])
 
         return result
+
+@ns.route('/<project_id>/jobs/<job_id>/archive/download')
+class ArchiveDownload(Resource):
+
+    @auth_required(['user'], allow_if_public=True)
+    def get(self, project_id, job_id):
+        f = request.args.get('filename', None)
+
+        if not f:
+            abort(404)
+
+        key = '%s/%s' % (job_id, f)
+        f = storage.download_archive(key)
+
+        if not f:
+            logger.error(key)
+            abort(404)
+
+        return send_file(f, attachment_filename=os.path.basename(f))
+
+
+@ns.route('/<project_id>/jobs/<job_id>/archive')
+class Archive(Resource):
+
+    @auth_required(['user'], allow_if_public=True)
+    def get(self, project_id, job_id):
+        result = g.db.execute_one_dict('''
+            SELECT archive
+            FROM job
+            WHERE   id = %s
+                AND project_id = %s
+        ''', [job_id, project_id])
+
+        if not result or not result['archive']:
+            return []
+
+        return result['archive']
+
 
 @ns.route('/<project_id>/jobs/<job_id>/console')
 class Console(Resource):

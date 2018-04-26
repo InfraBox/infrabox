@@ -4,36 +4,34 @@ import json
 import time
 import uuid
 import copy
+import urllib
 from datetime import datetime
+
+import requests
 
 from flask import jsonify, request, send_file, g, after_this_request, abort
 from flask_restplus import Resource
 
 from werkzeug.datastructures import FileStorage
 
+from pyinfrabox.utils import validate_uuid4
 from pyinfrabox.badge import validate_badge
 from pyinfrabox.markup import validate_markup
 from pyinfrabox.testresult import validate_result
 from pyinfrabox import ValidationError
 
 from pyinfraboxutils import get_env
+from pyinfraboxutils.token import encode_job_token
 from pyinfraboxutils.ibrestplus import api
 from pyinfraboxutils.ibflask import job_token_required, app
 from pyinfraboxutils.storage import storage
+
 
 ns = api.namespace('api/job',
                    description='Job runtime related operations')
 
 def allowed_file(filename, extensions):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in extensions
-
-def validate_uuid4(uuid_string):
-    try:
-        val = uuid.UUID(uuid_string, version=4)
-    except ValueError:
-        return False
-
-    return val.hex == uuid_string.replace('-', '')
 
 def delete_file(path):
     if os.path.exists(path):
@@ -259,19 +257,101 @@ class Job(Resource):
                     secret_name = dep['password']['$secret']
                     secret = get_secret(secret_name)
 
-                    if not secret:
+                    if secret is None:
                         abort(400, "Secret %s not found" % secret_name)
 
                     dep['password'] = secret
                     data['deployments'].append(dep)
+                elif dep['type'] == 'ecr':
+                    access_key_id_name = dep['access_key_id']['$secret']
+                    secret = get_secret(access_key_id_name)
+
+                    if secret is None:
+                        abort(400, "Secret %s not found" % access_key_id_name)
+
+                    dep['access_key_id'] = secret
+
+                    secret_access_key_name = dep['secret_access_key']['$secret']
+                    secret = get_secret(secret_access_key_name)
+
+                    if secret is None:
+                        abort(400, "Secret %s not found" % secret_access_key_name)
+
+                    dep['secret_access_key'] = secret
+                    data['deployments'].append(dep)
                 else:
                     abort(400, "Unknown deployment type")
 
+        # Registries
+        data['registries'] = []
+        definition = data['job']['definition']
+        registries = None
+
+        if definition:
+            registries = definition.get('registries', None)
+
+        if registries:
+            for r in registries:
+                if r['type'] == 'docker-registry':
+                    secret_name = r['password']['$secret']
+                    secret = get_secret(secret_name)
+
+                    if secret is None:
+                        abort(400, "Secret %s not found" % secret_name)
+
+                    r['password'] = secret
+                    data['registries'].append(r)
+                elif r['type'] == 'ecr':
+                    access_key_id_name = r['access_key_id']['$secret']
+                    secret = get_secret(access_key_id_name)
+
+                    if secret is None:
+                        abort(400, "Secret %s not found" % access_key_id_name)
+
+                    r['access_key_id'] = secret
+
+                    secret_access_key_name = r['secret_access_key']['$secret']
+                    secret = get_secret(secret_access_key_name)
+
+                    if secret is None:
+                        abort(400, "Secret %s not found" % secret_access_key_name)
+
+                    r['secret_access_key'] = secret
+                    data['registries'].append(r)
+                else:
+                    abort(400, "Unknown deployment type")
+
+
         # Default env vars
+        project_name = urllib.quote_plus(data['project']['name']).replace('+', '%20')
+        job_name = urllib.quote_plus(data['job']['name']).replace('+', '%20')
+        build_url = "%s/dashboard/#/project/%s/build/%s/%s" % (os.environ['INFRABOX_ROOT_URL'],
+                                                               project_name,
+                                                               data['build']['build_number'],
+                                                               data['build']['restart_counter'])
+        job_url = "%s/dashboard/#/project/%s/build/%s/%s/job/%s" % (os.environ['INFRABOX_ROOT_URL'],
+                                                                    project_name,
+                                                                    data['build']['build_number'],
+                                                                    data['build']['restart_counter'],
+                                                                    job_name)
+
+        job_api_url = "%s/api/v1/projects/%s/jobs/%s" % (os.environ['INFRABOX_ROOT_URL'],
+                                                         data['project']['id'],
+                                                         data['job']['id'])
+
+        build_api_url = "%s/api/v1/projects/%s/builds/%s" % (os.environ['INFRABOX_ROOT_URL'],
+                                                             data['project']['id'],
+                                                             data['build']['id'])
+
         data['env_vars'] = {
             "TERM": "xterm-256color",
             "INFRABOX_JOB_ID": data['job']['id'],
-            "INFRABOX_BUILD_NUMBER": "%s" % data['build']['build_number']
+            "INFRABOX_JOB_URL": job_url,
+            "INFRABOX_JOB_API_URL": job_api_url,
+            "INFRABOX_BUILD_API_URL": build_api_url,
+            "INFRABOX_BUILD_NUMBER": "%s" % data['build']['build_number'],
+            "INFRABOX_BUILD_RESTART_COUNTER": "%s" % data['build']['restart_counter'],
+            "INFRABOX_BUILD_URL": build_url,
         }
 
         data['secrets'] = {}
@@ -293,7 +373,7 @@ class Job(Resource):
             for name, value in env_var_refs.iteritems():
                 secret = get_secret(value)
 
-                if not secret:
+                if secret is None:
                     abort(400, "Secret %s not found" % value)
 
                 data['secrets'][name] = secret
@@ -377,6 +457,35 @@ class Cache(Resource):
         return jsonify({})
 
 
+@ns.route("/archive")
+class Archive(Resource):
+
+    @job_token_required
+    def post(self):
+        job_id = g.token['job']['id']
+
+        for f in request.files:
+            stream = request.files[f].stream
+            key = '%s/%s' % (job_id, f)
+            storage.upload_archive(stream, key)
+            size = stream.tell()
+
+            archive = {
+                'filename': f,
+                'size': size
+            }
+
+            g.db.execute('''
+                UPDATE job
+                SET archive = archive || %s::jsonb
+                WHERE id = %s
+            ''', [json.dumps(archive), job_id])
+
+        g.db.commit()
+
+        return jsonify({})
+
+
 # TODO(steffen): check upload output sizes
 # max_output_size = os.environ['INFRABOX_JOB_MAX_OUTPUT_SIZE']
 
@@ -392,12 +501,65 @@ class Output(Resource):
     @ns.expect(output_upload_parser)
     def post(self):
         job_id = g.token['job']['id']
+
         key = "%s.tar.gz" % job_id
         key = key.replace('/', '_')
 
+        stream = request.files['output.tar.gz'].stream
+
+        # determine all children
+        jobs = g.db.execute_many_dict('''
+            SELECT cluster_name, dependencies
+            FROM job
+            WHERE build_id = (SELECT build_id FROM job WHERE id = %s)
+            AND state = 'queued'
+        ''', [job_id])
+
+        current_cluster = g.db.execute_one_dict('''
+            SELECT cluster_name
+            FROM job
+            WHERE id = %s
+        ''', [job_id])['cluster_name']
+
+        clusters = set()
+
+        for j in jobs:
+            dependencies = j.get('dependencies', None)
+
+            if not dependencies:
+                continue
+
+            for dep in dependencies:
+                if dep['job-id'] != job_id:
+                    continue
+
+                clusters.add(j['cluster_name'])
+
+        clusters = g.db.execute_many_dict('''
+            SELECT root_url
+            FROM cluster
+            WHERE active = true
+            AND name = ANY (%s)
+            AND name != %s
+            AND name != %s
+        ''', [list(clusters), os.environ['INFRABOX_CLUSTER_NAME'], current_cluster])
+
         g.release_db()
-        #print(request.files)
-        storage.upload_output(request.files['output.tar.gz'].stream, key)
+
+        storage.upload_output(stream, key)
+
+        for c in clusters:
+            stream.seek(0)
+            url = '%s/api/job/output' % c['root_url']
+            files = {'output.tar.gz': stream}
+            token = encode_job_token(job_id)
+            headers = {'Authorization': 'bearer ' + token}
+            r = requests.post(url, files=files, headers=headers, timeout=120, verify=False)
+
+            if r.status_code != 200:
+                app.logger.error(r.text)
+                abort(500, "Failed to upload data")
+
         return jsonify({})
 
 @ns.route("/output/<parent_job_id>")
@@ -467,6 +629,51 @@ def find_leaf_jobs(jobs):
 
 @ns.route("/create_jobs")
 class CreateJobs(Resource):
+    def get_target_cluster(self, clusters, cluster_selector):
+        for c in clusters:
+            matches = True
+            for s in cluster_selector:
+                if s not in c['labels']:
+                    matches = False
+                    break
+
+            if matches:
+                return c['name']
+
+        return None
+
+    def assign_cluster(self, jobs):
+        clusters = g.db.execute_many_dict('''
+            SELECT name, labels
+            FROM cluster
+        ''')
+
+        assigned_clusters = {}
+
+        for j in jobs:
+            if 'cluster' not in j:
+                j['cluster'] = {}
+
+            cluster_selector = j['cluster'].get('selector', None)
+            target_cluster = None
+
+            # Find a cluster which matches the selector
+            if cluster_selector:
+                target_cluster = self.get_target_cluster(clusters, cluster_selector)
+
+                if not target_cluster:
+                    abort(400, 'Could not find a cluster which could satisfy the selector: %s' %
+                          json.dumps(cluster_selector))
+
+            # Use the same cluster as the parent if there's not selector
+            if not target_cluster:
+                target_cluster = 'master'
+                for d in j.get('depends_on', []):
+                    target_cluster = assigned_clusters.get(d['job'], 'master')
+                    break
+
+            assigned_clusters[j['name']] = target_cluster
+            j['cluster']['name'] = target_cluster
 
     @job_token_required
     def post(self):
@@ -487,7 +694,7 @@ class CreateJobs(Resource):
                     continue
 
                 if sc.get('capabilities', None):
-                    abort(404, 'Capabilities are disabled')
+                    abort(400, 'Capabilities are disabled')
 
         result = g.db.execute_one("SELECT env_var, build_id FROM job WHERE id = %s", [parent_job_id])
         base_env_var = result[0]
@@ -588,6 +795,8 @@ class CreateJobs(Resource):
                     )
                 ''', [json.dumps(wait_job), job_id, build_id, project_id])
 
+        self.assign_cluster(jobs)
+
         for job in jobs:
             name = job["name"]
 
@@ -606,6 +815,9 @@ class CreateJobs(Resource):
             if job_type == "docker":
                 f = job['docker_file']
                 t = 'run_project_container'
+            elif job_type == "docker-image":
+                f = None
+                t = 'run_project_container'
             elif job_type == "docker-compose":
                 f = job['docker_compose_file']
                 t = 'run_docker_compose'
@@ -613,7 +825,7 @@ class CreateJobs(Resource):
                 f = None
                 t = 'wait'
             else:
-                abort(400, "Unknown job type")
+                abort(400, "Unknown job type: %s" % job_type)
 
             limits_cpu = 1
             limits_memory = 1024
@@ -659,15 +871,16 @@ class CreateJobs(Resource):
                          INSERT INTO job (id, state, build_id, type, dockerfile, name,
                              project_id, dependencies, build_only,
                              created_at, repo,
-                             env_var_ref, env_var, build_arg, deployment, cpu, memory, timeout, resources, definition)
+                             env_var_ref, env_var, build_arg, deployment, cpu, memory,
+                             timeout, resources, definition, cluster_name)
                          VALUES (%s, 'queued', %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                                 %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
                          """, [job_id, build_id, t, f, name,
                                project_id,
                                json.dumps(depends_on), build_only, datetime.now(),
                                repo, env_var_refs, env_vars,
                                build_arguments, deployments, limits_cpu, limits_memory, timeout,
-                               resources, json.dumps(job)])
+                               resources, json.dumps(job), job['cluster']['name']])
 
             # to make sure the get picked up in the right order by the scheduler
             time.sleep(0.1)
@@ -884,7 +1097,7 @@ class Testresult(Resource):
             with open(path, 'r') as testresult:
                 data = json.load(testresult)
         except:
-            abort(404, 'Failed to parse json')
+            abort(400, 'Failed to parse json')
 
         # Validate it
         try:
@@ -895,7 +1108,7 @@ class Testresult(Resource):
         testruns = g.db.execute_one("SELECT COUNT(*) as cnt FROM test_run WHERE job_id = %s", [job_id])
 
         if testruns[0] > 0:
-            abort(404, "testrun already created")
+            abort(400, "testrun already created")
 
         rows = g.db.execute_one("""
                 SELECT j.project_id, b.build_number
@@ -929,11 +1142,19 @@ class Testresult(Resource):
 
         tests = data['tests']
         for t in tests:
+
+            if len(t['suite']) > 250:
+                t['suite'] = t['suite'][0:250]
+
+            if len(t['name']) > 250:
+                t['name'] = t['name'][0:250]
+
             # check if if already exists
             test_id = None
-            if t['suite'] + '|' + t['name'] in test_index:
+            concat_name = t['suite'] + '|' + t['name']
+            if  concat_name in test_index:
                 # existing test
-                test_id = test_index[t['suite'] + '|' + t['name']]
+                test_id = test_index[concat_name]
             else:
                 # new test
                 test_id = str(uuid.uuid4())

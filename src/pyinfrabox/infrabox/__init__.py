@@ -15,8 +15,16 @@ def check_name(n, path):
 def parse_repository(d, path):
     check_allowed_properties(d, path, ('clone', 'submodules'))
 
-    check_boolean(d['clone'], path + ".clone")
-    check_boolean(d['submodules'], path + ".submodules")
+    if 'clone' in d:
+        check_boolean(d['clone'], path + ".clone")
+
+    if 'submodules' in d:
+        check_boolean(d['submodules'], path + ".submodules")
+
+def parse_cluster(d, path):
+    check_allowed_properties(d, path, ('selector',))
+
+    check_string_array(d['selector'], path + ".selector")
 
 def parse_depends_on_condition(d, path):
     check_allowed_properties(d, path, ("job", "on"))
@@ -102,13 +110,16 @@ def parse_environment(e, path):
                 raise ValidationError(p, "must be a string or object")
 
 def parse_cache(d, path):
-    check_allowed_properties(d, path, ("data", "image"))
+    check_allowed_properties(d, path, ("data", "image", "after_image"))
 
     if 'data' in d:
         check_boolean(d['data'], path + ".data")
 
     if 'image' in d:
         check_boolean(d['image'], path + ".image")
+
+    if 'after_image' in d:
+        check_boolean(d['after_image'], path + ".after_image")
 
 def parse_git(d, path):
     check_allowed_properties(d, path, ("type", "name", "commit", "clone_url",
@@ -192,15 +203,58 @@ def parse_resources(d, path):
 
     parse_limits(d['limits'], path + ".limits")
 
+def parse_docker_image(d, path):
+    check_allowed_properties(d, path, ("type", "name", "image", "depends_on", "resources",
+                                       "environment", "timeout", "security_context",
+                                       "build_context", "cache", "repository", "command",
+                                       "cluster", "registries"))
+    check_required_properties(d, path, ("type", "name", "image", "resources"))
+    check_name(d['name'], path + ".name")
+    check_text(d['image'], path + ".image")
+    parse_resources(d['resources'], path + ".resources")
+
+    if 'cluster' in d:
+        parse_cluster(d['cluster'], path + ".cluster")
+
+    if 'command' in d:
+        check_string_array(d['command'], path + ".command")
+
+    if 'repository' in d:
+        parse_repository(d['repository'], path + ".repository")
+
+    if 'cache' in d:
+        parse_cache(d['cache'], path + ".cache")
+
+    if 'depends_on' in d:
+        parse_depends_on(d['depends_on'], path + ".depends_on")
+
+    if 'environment' in d:
+        parse_environment(d['environment'], path + ".environment")
+
+    if 'timeout' in d:
+        check_number(d['timeout'], path + ".timeout")
+
+    if 'security_context' in d:
+        parse_security_context(d['security_context'], path + '.security_context')
+
+    if 'registries' in d:
+        parse_registries(d['registries'], path + '.registries')
+
+    if 'build_context' in d:
+        check_text(d['build_context'], path + ".build_context")
+
 def parse_docker(d, path):
     check_allowed_properties(d, path, ("type", "name", "docker_file", "depends_on", "resources",
                                        "build_only", "environment",
                                        "build_arguments", "deployments", "timeout", "security_context",
-                                       "build_context", "cache", "repository"))
+                                       "build_context", "cache", "repository", "cluster"))
     check_required_properties(d, path, ("type", "name", "docker_file", "resources"))
     check_name(d['name'], path + ".name")
     check_text(d['docker_file'], path + ".docker_file")
     parse_resources(d['resources'], path + ".resources")
+
+    if 'cluster' in d:
+        parse_cluster(d['cluster'], path + ".cluster")
 
     if 'repository' in d:
         parse_repository(d['repository'], path + ".repository")
@@ -234,11 +288,14 @@ def parse_docker(d, path):
 
 def parse_docker_compose(d, path):
     check_allowed_properties(d, path, ("type", "name", "docker_compose_file", "depends_on",
-                                       "environment", "resources", "cache", "timeout"))
+                                       "environment", "resources", "cache", "timeout", "cluster"))
     check_required_properties(d, path, ("type", "name", "docker_compose_file", "resources"))
     check_name(d['name'], path + ".name")
     check_text(d['docker_compose_file'], path + ".docker_compose_file")
     parse_resources(d['resources'], path + ".resources")
+
+    if 'cluster' in d:
+        parse_cluster(d['cluster'], path + ".cluster")
 
     if 'timeout' in d:
         check_number(d['timeout'], path + ".timeout")
@@ -275,6 +332,59 @@ def parse_deployment_docker_registry(d, path):
     if 'password' in d:
         parse_secret_ref(d['password'], path + ".password")
 
+def parse_registry_docker_registry(d, path):
+    check_required_properties(d, path, ("type", "host", "repository", "username", "password"))
+    check_text(d['host'], path + ".host")
+    check_text(d['repository'], path + ".repository")
+    check_text(d['username'], path + ".username")
+    parse_secret_ref(d['password'], path + ".password")
+
+def parse_registry_ecr(d, path):
+    check_required_properties(d, path, ("type", "access_key_id", "secret_access_key", "region", "host"))
+
+    check_text(d['host'], path + ".host")
+    check_text(d['region'], path + ".region")
+    parse_secret_ref(d['secret_access_key'], path + ".secret_access_key")
+    parse_secret_ref(d['access_key_id'], path + ".access_key_id")
+
+def parse_deployment_ecr(d, path):
+    check_allowed_properties(d, path, ("type", "access_key_id", "secret_access_key",
+                                       "region", "repository", "host", "tag"))
+    check_required_properties(d, path, ("type", "access_key_id", "secret_access_key", "region", "repository", "host"))
+
+    check_text(d['host'], path + ".host")
+    check_text(d['repository'], path + ".repository")
+    check_text(d['region'], path + ".region")
+    parse_secret_ref(d['secret_access_key'], path + ".secret_access_key")
+    parse_secret_ref(d['access_key_id'], path + ".access_key_id")
+
+    if 'tag' in d:
+        check_text(d['tag'], path + ".tag")
+
+def parse_registries(e, path):
+    if not isinstance(e, list):
+        raise ValidationError(path, "must be an array")
+
+    if not e:
+        raise ValidationError(path, "must not be empty")
+
+    for i in range(0, len(e)):
+        elem = e[i]
+        p = "%s[%s]" % (path, i)
+
+        if 'type' not in elem:
+            raise ValidationError(p, "does not contain a 'type'")
+
+        t = elem['type']
+
+        if t == 'docker-registry':
+            parse_registry_docker_registry(elem, p)
+        elif t == 'ecr':
+            parse_registry_ecr(elem, p)
+        else:
+            raise ValidationError(p, "type '%s' not supported" % t)
+
+
 def parse_deployments(e, path):
     if not isinstance(e, list):
         raise ValidationError(path, "must be an array")
@@ -293,6 +403,8 @@ def parse_deployments(e, path):
 
         if t == 'docker-registry':
             parse_deployment_docker_registry(elem, p)
+        elif t == 'ecr':
+            parse_deployment_ecr(elem, p)
         else:
             raise ValidationError(p, "type '%s' not supported" % t)
 
@@ -318,6 +430,8 @@ def parse_jobs(e, path):
             parse_workflow(elem, p)
         elif t == 'docker':
             parse_docker(elem, p)
+        elif t == 'docker-image':
+            parse_docker_image(elem, p)
         elif t == 'docker-compose':
             parse_docker_compose(elem, p)
         else:

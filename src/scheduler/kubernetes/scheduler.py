@@ -3,24 +3,14 @@ import argparse
 import time
 import os
 import sys
+import requests
 import psycopg2
 import psycopg2.extensions
-import requests
-from prometheus_client import start_http_server, Histogram, Counter
 
 from pyinfraboxutils import get_logger, get_env, print_stackdriver
 from pyinfraboxutils.leader import is_leader
 from pyinfraboxutils.db import connect_db
 from pyinfraboxutils.token import encode_job_token
-
-
-# pylint: disable=no-value-for-parameter
-LOOP_SECONDS = Histogram('infrabox_scheduler_loop_seconds', 'Time spent for one scheduler loop iteration')
-ORPHANED_JOBS = Counter('infrabox_scheduler_orphaned_jobs_total', 'Number of removed orphaned jobs')
-ABORTED_JOBS = Counter('infrabox_scheduler_killed_jobs_total', 'Number of killed jobs')
-SCHEDULED_JOBS = Counter('infrabox_scheduler_scheduled_jobs_total', 'Number of scheduled jobs')
-TIMEOUT_JOBS = Counter('infrabox_scheduler_timeout_jobs_total', 'Number of timed out scheduled jobs')
-ORPHANED_NAMESPACES = Counter('infrabox_scheduler_orphaned_namespaces_total', 'Number of removed orphaned namespaces')
 
 def gerrit_enabled():
     return os.environ['INFRABOX_GERRIT_ENABLED'] == 'true'
@@ -117,9 +107,6 @@ class Scheduler(object):
         }, {
             "name": "INFRABOX_VERSION",
             "value": self.args.tag
-        }, {
-            "name": "INFRABOX_DOCKER_REGISTRY_URL",
-            "value": os.environ['INFRABOX_DOCKER_REGISTRY_URL']
         }, {
             "name": "INFRABOX_LOCAL_CACHE_ENABLED",
             "value": os.environ['INFRABOX_LOCAL_CACHE_ENABLED']
@@ -333,6 +320,10 @@ class Scheduler(object):
                 'apiGroups': ['rbac.authorization.k8s.io'],
                 'resources': ['roles', 'rolebindings'],
                 'verbs': ['*']
+            }, {
+                'apiGroups': ['policy'],
+                'resources': ['poddisruptionbudgets'],
+                'verbs': ['*']
             }]
         }
 
@@ -465,17 +456,15 @@ class Scheduler(object):
         self.logger.info("Finished scheduling job")
         self.logger.info("")
 
-        SCHEDULED_JOBS.inc()
-
     def schedule(self):
         # find jobs
         cursor = self.conn.cursor()
         cursor.execute('''
             SELECT j.id, j.cpu, j.type, j.memory, j.dependencies
             FROM job j
-            WHERE j.state = 'queued'
+            WHERE j.state = 'queued' and cluster_name = %s
             ORDER BY j.created_at
-        ''')
+        ''', [os.environ['INFRABOX_CLUSTER_NAME']])
         jobs = cursor.fetchall()
         cursor.close()
 
@@ -603,8 +592,6 @@ class Scheduler(object):
 
             cursor.close()
 
-            ABORTED_JOBS.inc()
-
     def handle_timeouts(self):
         cursor = self.conn.cursor()
         cursor.execute('''
@@ -635,8 +622,6 @@ class Scheduler(object):
                 WHERE id = %s""", (output, job_id,))
 
             cursor.close()
-
-            TIMEOUT_JOBS.inc()
 
     def handle_orphaned_namespaces(self):
         h = {'Authorization': 'Bearer %s' % self.args.token}
@@ -676,10 +661,7 @@ class Scheduler(object):
                     continue
 
                 self.logger.info('Deleting orphaned namespace ib-%s', job_id)
-                ORPHANED_NAMESPACES.inc()
                 self.kube_delete_namespace(job_id)
-
-
 
     def handle_orphaned_jobs(self):
         h = {'Authorization': 'Bearer %s' % self.args.token}
@@ -718,11 +700,61 @@ class Scheduler(object):
                     continue
 
                 self.logger.info('Deleting orphaned job %s', job_id)
-                ORPHANED_JOBS.inc()
                 self.kube_delete_job(job_id)
 
-    @LOOP_SECONDS.time()
+    def update_cluster_state(self):
+        cluster_name = os.environ['INFRABOX_CLUSTER_NAME']
+        labels = []
+
+        if os.environ['INFRABOX_CLUSTER_LABELS']:
+            labels = os.environ['INFRABOX_CLUSTER_LABELS'].split(',')
+
+        root_url = os.environ['INFRABOX_ROOT_URL']
+
+        h = {'Authorization': 'Bearer %s' % self.args.token}
+        r = requests.get(self.args.api_server + '/api/v1/nodes',
+                         headers=h,
+                         timeout=10)
+        data = r.json()
+
+        memory = 0
+        cpu = 0
+        nodes = 0
+
+        items = data.get('items', [])
+
+        for i in items:
+            nodes += 1
+            cpu += int(i['status']['capacity']['cpu'])
+            mem = i['status']['capacity']['memory']
+            mem = mem.replace('Ki', '')
+            memory += int(mem)
+
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO cluster (name, labels, root_url, nodes, cpu_capacity, memory_capacity, active)
+            VALUES(%s, %s, %s, %s, %s, %s, true)
+            ON CONFLICT (name) DO UPDATE
+            SET labels = %s, root_url = %s, nodes = %s, cpu_capacity = %s, memory_capacity = %s
+            WHERE cluster.name = %s """, [cluster_name, labels, root_url, nodes, cpu, memory, labels,
+                                          root_url, nodes, cpu, memory, cluster_name])
+        cursor.close()
+
+    def _inactive(self):
+        cluster_name = os.environ['INFRABOX_CLUSTER_NAME']
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT active
+            FROM cluster
+            WHERE name = %s """, [cluster_name])
+        active = cursor.fetchone()[0]
+        cursor.close()
+
+        return not active
+
     def handle(self):
+        self.update_cluster_state()
+
         try:
             self.handle_timeouts()
             self.handle_aborts()
@@ -730,6 +762,11 @@ class Scheduler(object):
             self.handle_orphaned_namespaces()
         except Exception as e:
             self.logger.exception(e)
+
+        if self._inactive():
+            self.logger.info('Cluster set to inactive, sleeping...')
+            time.sleep(5)
+            return
 
         self.schedule()
 
@@ -761,13 +798,13 @@ def main():
 
     get_env('INFRABOX_SERVICE')
     get_env('INFRABOX_VERSION')
+    get_env('INFRABOX_CLUSTER_NAME')
     get_env('INFRABOX_DATABASE_DB')
     get_env('INFRABOX_DATABASE_USER')
     get_env('INFRABOX_DATABASE_PASSWORD')
     get_env('INFRABOX_DATABASE_HOST')
     get_env('INFRABOX_DATABASE_PORT')
     get_env('INFRABOX_ROOT_URL')
-    get_env('INFRABOX_DOCKER_REGISTRY_URL')
     get_env('INFRABOX_GENERAL_DONT_CHECK_CERTIFICATES')
     get_env('INFRABOX_GENERAL_WORKER_NAMESPACE')
     get_env('INFRABOX_JOB_MAX_OUTPUT_SIZE')
@@ -790,8 +827,6 @@ def main():
 
     conn = connect_db()
     conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
-
-    start_http_server(8000)
 
     scheduler = Scheduler(conn, args)
     scheduler.run()

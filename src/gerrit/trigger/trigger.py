@@ -44,7 +44,7 @@ def main():
             try:
                 event = json.loads(line)
 
-                if event['type'] == "patchset-created":
+                if event['type'] in ("patchset-created", "draft-published"):
                     logger.info(json.dumps(event, indent=4))
                     handle_patchset_created(conn, event)
                     break
@@ -101,13 +101,18 @@ def handle_patchset_created_project(conn, event, project_id, project_name):
         commit = result
 
     c = conn.cursor()
-    c.execute('''SELECT count(distinct build_number) + 1 AS build_no
-              FROM build AS b
-              WHERE b.project_id = %s''', [project_id])
+    c.execute('''
+        SELECT max(build_number) + 1 AS build_no
+        FROM build AS b
+        WHERE b.project_id = %s''', [project_id])
     result = c.fetchone()
     c.close()
 
     build_no = result[0]
+
+    if not build_no:
+        build_no = 1
+
     c = conn.cursor()
     c.execute('''INSERT INTO build (commit_id, build_number, project_id)
                  VALUES (%s, %s, %s)
@@ -121,6 +126,7 @@ def handle_patchset_created_project(conn, event, project_id, project_name):
         "GERRIT_PATCHSET_UPLOADER_USERNAME": event['patchSet']['uploader']['username'],
         "GERRIT_PATCHSET_UPLOADER_NAME": event['patchSet']['uploader'].get('name', None),
         "GERRIT_PATCHSET_UPLOADER_EMAIL": event['patchSet']['uploader']['email'],
+        "GERRIT_PATCHSET_NUMBER": event['patchSet']['number'],
         "GERRIT_PATCHSET_REF": event['patchSet']['ref'],
         "GERRIT_REFSPEC": event['patchSet']['ref'],
         "GERRIT_PATCHSET_REVISION": event['patchSet']['revision'],
@@ -154,12 +160,12 @@ def handle_patchset_created_project(conn, event, project_id, project_name):
     c = conn.cursor()
     c.execute('''INSERT INTO job (id, state, build_id, type, name,
                                  project_id, build_only, dockerfile,
-                                 cpu, memory, repo, env_var)
+                                 cpu, memory, repo, env_var, cluster_name)
                 VALUES (gen_random_uuid(), 'queued', %s, 'create_job_matrix', 'Create Jobs',
-                        %s, false, '', 1, 1024, %s, %s)''', (build_id,
-                                                             project_id,
-                                                             json.dumps(git_repo),
-                                                             json.dumps(env_vars)))
+                        %s, false, '', 1, 1024, %s, %s, 'master')''', (build_id,
+                                                                       project_id,
+                                                                       json.dumps(git_repo),
+                                                                       json.dumps(env_vars)))
 
 def handle_patchset_created(conn, event):
     conn.rollback()

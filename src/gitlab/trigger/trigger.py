@@ -65,10 +65,13 @@ class Trigger(object):
 
     def create_build(self, commit_id, project_id):
         build_no = self.execute('''
-            SELECT count(distinct build_number) + 1 AS build_no
-                          FROM build AS b
-                          WHERE b.project_id = %s
-        ''', [project_id])[0][0]
+                    SELECT max(build_number) + 1 AS build_no
+                    FROM build AS b
+                    WHERE b.project_id = %s
+                ''', [project_id])[0][0]
+
+        if not build_no:
+            build_no = 1
 
         result = self.execute('''
             INSERT INTO build (commit_id, build_number, project_id)
@@ -90,9 +93,9 @@ class Trigger(object):
         self.execute('''
             INSERT INTO job (id, state, build_id, type,
                              name, project_id, build_only,
-                             dockerfile, cpu, memory, repo, env_var)
+                             dockerfile, cpu, memory, repo, env_var, cluster_name))
             VALUES (gen_random_uuid(), 'queued', %s, 'create_job_matrix',
-                    'Create Jobs', %s, false, '', 1, 1024, %s, %s)
+                    'Create Jobs', %s, false, '', 1, 1024, %s, %s, 'master)
         ''', [build_id, project_id, json.dumps(git_repo), env], fetch=False)
 
     def create_push(self, c, repository, branch, tag):
@@ -158,12 +161,9 @@ class Trigger(object):
                         project_id, gitlab_repo_private, branch)
 
     def handle_push(self, event):
-        result_all = self.execute('''
-                    SELECT gitlab_id FROM repository''')
         result = self.execute('''
             SELECT project_id FROM repository WHERE gitlab_id = %s;
         ''', [event['project_id']])
-
         project_id = result[0]
 
         result = self.execute('''
@@ -275,10 +275,10 @@ class Trigger(object):
         branch = event['pull_request']['head']['ref']
 
         env = json.dumps({
-            "GITHUB_PULL_REQUEST_BASE_LABEL": event['pull_request']['base']['label'],
-            "GITHUB_PULL_REQUEST_BASE_REF": event['pull_request']['base']['ref'],
-            "GITHUB_PULL_REQUEST_BASE_SHA": event['pull_request']['base']['sha'],
-            "GITHUB_PULL_REQUEST_BASE_REPO_CLONE_URL": event['pull_request']['base']['repo']['clone_url']
+            "GITLAB_PULL_REQUEST_BASE_LABEL": event['pull_request']['base']['label'],
+            "GITLAB_PULL_REQUEST_BASE_REF": event['pull_request']['base']['ref'],
+            "GITLAB_PULL_REQUEST_BASE_SHA": event['pull_request']['base']['sha'],
+            "GITLAB_PULL_REQUEST_BASE_REPO_CLONE_URL": event['pull_request']['base']['repo']['clone_url']
         })
 
         if not result:

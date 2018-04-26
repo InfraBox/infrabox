@@ -1,5 +1,5 @@
 export default class User {
-    constructor (username, avatarUrl, name, email, githubId, gitlabId) {
+    constructor (username, avatarUrl, name, email, githubId, gitlabId, id) {
         this.githubRepos = []
         this.gitlabRepos = []
         this.username = username
@@ -8,6 +8,7 @@ export default class User {
         this.email = email
         this.githubId = githubId
         this.gitlabId = gitlabId
+        this.id = id
     }
 
     hasGithubAccount () {
@@ -16,5 +17,9 @@ export default class User {
 
     hasGitlabAccount () {
         return this.gitlabId != null
+    }
+
+    isAdmin () {
+        return this.id === '00000000-0000-0000-0000-000000000000'
     }
 }

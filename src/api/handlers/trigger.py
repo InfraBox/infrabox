@@ -130,9 +130,6 @@ def create_github_commit(project_id, repo_id, branch_or_sha):
 
     commit = get_github_commit(github_owner, github_api_token, repo_name, branch_or_sha)
 
-    if r.status_code != 200:
-        abort(r.status_code, commit['message'])
-
     insert_commit(project_id, repo_id, commit)
     return commit
 
@@ -182,9 +179,9 @@ def create_git_job(commit, build_no, project_id, repo, project_type, env):
 
     g.db.execute('''
         INSERT INTO job (id, state, build_id, type, name, project_id,
-                         build_only, dockerfile, cpu, memory, repo, env_var)
+                         build_only, dockerfile, cpu, memory, repo, env_var, cluster_name)
         VALUES (gen_random_uuid(), 'queued', %s, 'create_job_matrix',
-                'Create Jobs', %s, false, '', 1, 1024, %s, %s)
+                'Create Jobs', %s, false, '', 1, 1024, %s, %s, 'master')
     ''', [build['id'], project_id, json.dumps(git_repo), json.dumps(env_var)])
 
     return (build['id'], build['build_number'])
@@ -258,11 +255,14 @@ class Trigger(Resource):
         project_type = project[0]
 
         r = g.db.execute_one('''
-            SELECT count(distinct build_number) + 1 AS build_no
+            SELECT max(build_number) + 1 AS build_no
             FROM build AS b
             WHERE b.project_id = %s
         ''', [project_id])
         build_no = r[0]
+
+        if not build_no:
+            build_no = 1
 
         new_build_id = None
         new_build_number = None
