@@ -41,7 +41,6 @@ def get_next_page(r):
     n3 = link.find('>;', n2)
     return link[n2:n3]
 
-
 def get_commits(url, token):
     headers = {
         "Authorization": "token " + token,

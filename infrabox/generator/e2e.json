@@ -27,7 +27,9 @@
         "build_only": false,
         "resources": {
             "limits": { "cpu": 1, "memory": 2048 },
-            "kubernetes": { "limits": { "cpu": 1, "memory": 2048 } }
+            "kubernetes": {
+                "limits": { "cpu": 1, "memory": 2048 }
+            }
         },
         "cache": {
             "image": true

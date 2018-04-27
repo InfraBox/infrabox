@@ -191,14 +191,47 @@ def parse_security_context(d, path):
     if 'privileged' in d:
         check_boolean(d['privileged'], path + ".privileged")
 
-def parse_resources_kubernetes(d, path):
+def parse_er_kubernetes_namespace(d, path):
     check_allowed_properties(d, path, ('limits',))
     check_required_properties(d, path, ("limits",))
 
     parse_kubernetes_limits(d['limits'], path + ".limits")
 
+def parse_extensions(d, path):
+    if not isinstance(d, list):
+        raise ValidationError(path, "must be an array")
+
+    names = []
+
+    for i in range(0, len(d)):
+        elem = d[i]
+        p = "%s[%s]" % (path, i)
+
+        if 'type' not in elem:
+            raise ValidationError(p, "does not contain a 'type'")
+
+        if 'spec' not in elem:
+            raise ValidationError(p, "does not contain a 'spec'")
+
+        if 'name' not in elem:
+            raise ValidationError(p, "does not contain a 'name'")
+
+        if elem['name'] in names:
+            raise ValidationError(p, "duplicate extension name found: %s" % elem['name'])
+
+        names.append(elem['name'])
+
+        t = elem['type']
+
+        p += '.spec'
+
+        if t == 'kubernetes-namespace':
+            parse_er_kubernetes_namespace(elem['spec'], p)
+        else:
+            raise ValidationError(p, "type '%s' not supported" % t)
+
 def parse_resources(d, path):
-    check_allowed_properties(d, path, ("limits", "kubernetes"))
+    check_allowed_properties(d, path, ("limits",))
     check_required_properties(d, path, ("limits",))
 
     parse_limits(d['limits'], path + ".limits")
@@ -207,11 +240,14 @@ def parse_docker_image(d, path):
     check_allowed_properties(d, path, ("type", "name", "image", "depends_on", "resources",
                                        "environment", "timeout", "security_context",
                                        "build_context", "cache", "repository", "command",
-                                       "cluster", "registries"))
+                                       "cluster", "extensions", "registries"))
     check_required_properties(d, path, ("type", "name", "image", "resources"))
     check_name(d['name'], path + ".name")
     check_text(d['image'], path + ".image")
     parse_resources(d['resources'], path + ".resources")
+
+    if 'extensions' in d:
+        parse_extensions(d['extensions'], path + ".extensions")
 
     if 'cluster' in d:
         parse_cluster(d['cluster'], path + ".cluster")
@@ -247,11 +283,14 @@ def parse_docker(d, path):
     check_allowed_properties(d, path, ("type", "name", "docker_file", "depends_on", "resources",
                                        "build_only", "environment",
                                        "build_arguments", "deployments", "timeout", "security_context",
-                                       "build_context", "cache", "repository", "cluster"))
+                                       "build_context", "cache", "repository", "cluster", "extensions"))
     check_required_properties(d, path, ("type", "name", "docker_file", "resources"))
     check_name(d['name'], path + ".name")
     check_text(d['docker_file'], path + ".docker_file")
     parse_resources(d['resources'], path + ".resources")
+
+    if 'extensions' in d:
+        parse_extensions(d['extensions'], path + ".extensions")
 
     if 'cluster' in d:
         parse_cluster(d['cluster'], path + ".cluster")
