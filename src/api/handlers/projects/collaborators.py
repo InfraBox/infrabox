@@ -25,8 +25,7 @@ class Collaborators(Resource):
     @auth_required(['user'])
     @api.marshal_list_with(collaborator_model)
     def get(self, project_id):
-        p = g.db.execute_many_dict(
-            """
+        p = g.db.execute_many_dict("""
             SELECT u.name, u.id, u.email, u.avatar_url, u.username FROM "user" u
             INNER JOIN collaborator co
                 ON co.user_id = u.id
@@ -41,8 +40,7 @@ class Collaborators(Resource):
         b = request.get_json()
         username = b['username']
 
-        user = g.db.execute_one_dict(
-            """
+        user = g.db.execute_one_dict("""
             SELECT * FROM "user"
             WHERE username = %s
         """, [username])
@@ -50,8 +48,7 @@ class Collaborators(Resource):
         if not user:
             abort(400, "User not found.")
 
-        num_collaborators = g.db.execute_one(
-            """
+        num_collaborators = g.db.execute_one("""
             SELECT COUNT(*) FROM collaborator
             WHERE user_id = %s
             AND project_id = %s
@@ -60,8 +57,7 @@ class Collaborators(Resource):
         if num_collaborators != 0:
             return OK('Specified user is already a collaborator.')
 
-        g.db.execute(
-            """
+        g.db.execute("""
             INSERT INTO collaborator (project_id, user_id)
             VALUES(%s, %s) ON CONFLICT DO NOTHING
         """, [project_id, user['id']])
@@ -81,8 +77,7 @@ class Collaborator(Resource):
         if user_id == owner_id:
             abort(400, "It's not allowed to delete the owner of the project from collaborators.")
 
-        num_collaborators = g.db.execute_one(
-            """
+        num_collaborators = g.db.execute_one("""
             SELECT COUNT(*) FROM collaborator
             WHERE user_id = %s
             AND project_id = %s
@@ -93,8 +88,7 @@ class Collaborator(Resource):
         if num_collaborators == 0:
             return OK('Specified user is not in collaborators list.')
 
-        g.db.execute(
-            """
+        g.db.execute("""
             DELETE FROM collaborator
             WHERE user_id = %s
             AND project_id = %s

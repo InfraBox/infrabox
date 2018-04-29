@@ -1,5 +1,8 @@
 from pyinfraboxutils.ibrestplus import api
 
+internal = api.namespace('internal/',
+                         description='Internal')
+
 admin = api.namespace('api/v1/admin/',
                       description='Admin')
 

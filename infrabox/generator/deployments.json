@@ -298,5 +298,21 @@
         "cache": {
             "image": true
         }
+    }, {
+        "type": "docker",
+        "build_context": "../..",
+        "name": "fluentd",
+        "docker_file": "src/fluentd/Dockerfile",
+        "resources": { "limits": { "cpu": 1, "memory": 2048 } },
+        "deployments": [{
+            "type": "docker-registry",
+            "host": "quay.io/infrabox",
+            "repository": "fluentd",
+            "username": "infrabox+infrabox_ci",
+            "password": { "$secret": "QUAY_PASSWORD" }
+        }],
+        "cache": {
+            "image": true
+        }
     }]
 }
