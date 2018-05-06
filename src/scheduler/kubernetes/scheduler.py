@@ -71,7 +71,7 @@ class Scheduler(object):
             requests.delete(self.args.api_server + '/api/v1/namespaces/%s/pods/%s' % (self.namespace, pod_name,),
                             headers=h, params=p, timeout=5)
 
-    def kube_job(self, job_id, build_id, cpu, mem, job_type, additional_env=None):
+    def kube_job(self, job_id, build_id, cpu, mem, job_type, additional_env=None, services=None):
         h = {'Authorization': 'Bearer %s' % self.args.token}
         volumes = [{
             "name": "data-dir",
@@ -135,6 +135,21 @@ class Scheduler(object):
 
         if additional_env:
             env += additional_env
+
+        if services:
+            for s in services:
+                volumes.append({
+                    "name": s['id'],
+                    "secret": {
+                        "secretName": s['id']
+                    }
+                })
+
+                volume_mounts.append({
+                    "readOnly": True,
+                    "name": s['id'],
+                    "mountPath": "/var/run/infrabox.net/services/%s" % s['metadata']['name']
+                })
 
         if use_host_docker_daemon():
             volumes.append({
@@ -392,7 +407,7 @@ class Scheduler(object):
                          headers=h, timeout=5)
 
         if r.status_code != 200:
-            self.logger.warn("Failed to get service account secret: %s", r.txt)
+            self.logger.warn("Failed to get service account secret: %s", r.text)
             return False
 
         data = r.json()
@@ -407,10 +422,121 @@ class Scheduler(object):
 
         return env
 
+    def _api_get(self, url):
+        h = {'Authorization': 'Bearer %s' % self.args.token}
+        r = requests.get(self.args.api_server + url, headers=h, timeout=5)
+        return r
+
+    def _api_post(self, url, data):
+        h = {'Authorization': 'Bearer %s' % self.args.token}
+        r = requests.post(self.args.api_server + url, headers=h, json=data, timeout=10)
+        return r
+
+    def _get_service_url(self, service):
+        r = self._api_get('/apis/' + service['apiVersion'])
+
+        if r.status_code != 200:
+            self.logger.warn("Failed to get api version: %s", r.text)
+            raise Exception("Failed to get api version: %s" % r.text)
+
+        api = r.json()
+        resource = None
+        for r in api['resources']:
+            if service['kind'] == r['kind']:
+                resource = r
+
+        if not resource:
+            self.logger.warn("Resource kind not found: %s", service['kind'])
+            raise Exception("Resource kind not found: %s" % service['kind'])
+
+        return '/apis/' + service['apiVersion'] + '/namespaces/' + self.namespace + '/' + resource['name']
+
+    def _get_service(self, service):
+        url = self._get_service_url(service)
+        r = self._api_get(url)
+
+
+        if r.status_code != 200:
+            self.logger.warn("Failed to get resource list: %s", r.text)
+            raise Exception("Failed to get resource list: %s" % r.text)
+
+        r = r.json()
+
+        for i in r['items']:
+            if i['metadata']['name'] == service['id']:
+                return i, url
+
+        return None, url
+
+    def _provision_service(self, service):
+        resource, url = self._get_service(service)
+
+        if resource:
+            # Check state of service
+            if 'status' not in resource:
+                return False
+
+            if 'infrabox' not in resource['status']:
+                return False
+
+            if 'status' not in resource['status']['infrabox']:
+                return False
+
+            status = resource['status']['infrabox']['status']
+
+            if status == 'ready':
+                return True
+
+            msg = resource['status']['infrabox'].get('message', 'Unknown Error')
+
+            if status == 'error':
+                raise Exception("Failed to provision service %s: %s" % (service['metadata']['name'], msg))
+
+            return False
+        else:
+            # Create it
+            service['spec']['infrabox'] = {
+                'secretName': service['id']
+            }
+
+            service['metadata']['name'] = service['id']
+            service['metadata']['namespace'] = self.namespace
+
+            url += '/namespaces/'
+            r = self._api_post(url, service)
+
+            if r.status_code != 201:
+                self.logger.warn("Failed to create service: %s", r.text)
+                raise Exception("Failed to create service: %s" % r.text)
+
+            return False
+
+    def _provision_services(self, definition):
+        if not definition:
+            return True
+
+        services = definition.get('services', None)
+        if not services:
+            return True
+
+        self.logger.info("Provision additional services")
+
+        ready = True
+        for s in services:
+            r = self._provision_service(s)
+
+            if not r:
+                ready = False
+                self.logger.info("Service %s/%s not yet ready", s['apiVersion'], s['kind'])
+            else:
+                self.logger.info("Service %s/%s ready", s['apiVersion'], s['kind'])
+
+        return ready
+
     def schedule_job(self, job_id, cpu, memory):
         cursor = self.conn.cursor()
         cursor.execute('''
-            SELECT j.type, build_id, resources FROM job j WHERE j.id = %s
+            SELECT j.type, build_id, resources, definition FROM job j WHERE j.id = %s
         ''', (job_id,))
         j = cursor.fetchone()
         cursor.close()
@@ -418,6 +544,7 @@ class Scheduler(object):
         job_type = j[0]
         build_id = j[1]
         resources = j[2]
+        definition = j[3]
 
         cpu -= 0.2
 
@@ -446,7 +573,12 @@ class Scheduler(object):
             self.logger.error("Unknown job type: %s", job_type)
             return
 
-        if not self.kube_job(job_id, build_id, cpu, memory, job_type, additional_env=additional_env):
+        services = None
+
+        if definition and 'services' in definition:
+            services = definition['services']
+
+        if not self.kube_job(job_id, build_id, cpu, memory, job_type, additional_env=additional_env, services=services):
             return
 
         cursor = self.conn.cursor()
@@ -460,7 +592,7 @@ class Scheduler(object):
         # find jobs
         cursor = self.conn.cursor()
         cursor.execute('''
-            SELECT j.id, j.cpu, j.type, j.memory, j.dependencies
+            SELECT j.id, j.cpu, j.type, j.memory, j.dependencies, j.definition
             FROM job j
             WHERE j.state = 'queued' and cluster_name = %s
             ORDER BY j.created_at
@@ -479,6 +611,7 @@ class Scheduler(object):
             job_type = j[2]
             memory = j[3]
             dependencies = j[4]
+            definition = j[5]
 
             self.logger.info("")
             self.logger.info("Starting to schedule job: %s", job_id)
@@ -547,6 +680,21 @@ class Scheduler(object):
                 cursor.execute('''
                     UPDATE job SET state = 'finished', start_date = now(), end_date = now() WHERE id = %s;
                 ''', (job_id,))
+                cursor.close()
+                continue
+
+            # Provision additional services
+            try:
+                services_ready = self._provision_services(definition)
+
+                if not services_ready:
+                    continue
+            except Exception as e:
+                self.logger.exception(e)
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                    UPDATE job SET state = 'error', start_date = now(), end_date = now(), message = %s WHERE id = %s;
+                ''', (str(e), job_id))
                 cursor.close()
                 continue
 
