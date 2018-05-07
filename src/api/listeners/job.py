@@ -50,7 +50,7 @@ def __handle_event(event, socketio):
 
         commit = None
         pr = None
-        if project['type'] in ('gerrit', 'github'):
+        if project['type'] in ('gerrit', 'github', 'gitlab'):
             commit = db.execute_one_dict('''
 		SELECT
                     c.id,

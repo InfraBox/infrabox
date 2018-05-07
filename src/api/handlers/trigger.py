@@ -20,6 +20,14 @@ def execute_github_api(url, token):
     url = os.environ['INFRABOX_GITHUB_API_URL'] + url
     return requests.get(url, headers=headers, verify=False)
 
+def execute_gitlab_api(url, token):
+    headers = {
+        'Authorization': 'Bearer %s' % token
+    }
+
+    url = os.environ['INFRABOX_GITLAB_API_URL'] + url
+    return requests.get(url, headers=headers, verify=False)
+
 def get_sha_for_branch(owner, repo, branch_or_sha, token):
     url = '/repos/%s/%s/branches/%s' % (owner, repo, branch_or_sha)
     result = execute_github_api(url, token)
@@ -128,7 +136,7 @@ def create_github_commit(project_id, repo_id, branch_or_sha):
     ''', [repo_id])
     github_api_token = u[0]
 
-    commit = get_github_commit(github_owner, github_api_token, repo_name, branch_or_sha)
+    commit =   (github_owner, github_api_token, repo_name, branch_or_sha)
 
     insert_commit(project_id, repo_id, commit)
     return commit
@@ -170,6 +178,8 @@ def create_git_job(commit, build_no, project_id, repo, project_type, env):
 
     if project_type == 'github':
         git_repo['github_private_repo'] = repo['private']
+    elif project_type == 'gitlab':
+        git_repo['gitlab_private_repo'] = repo['private']
 
     env_var = None
     if env:
@@ -267,7 +277,7 @@ class Trigger(Resource):
         new_build_id = None
         new_build_number = None
 
-        if project_type in ('gerrit', 'github'):
+        if project_type in ('gerrit', 'github', 'gitlab'):
             repo = g.db.execute_one('''
                 SELECT id, name, clone_url, private
                 FROM repository
