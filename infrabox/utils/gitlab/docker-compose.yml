@@ -1,0 +1,25 @@
+version: "3.3"
+
+services:
+    gitlab:
+        image: "gitlab/gitlab-ce"
+        restart: always
+        hostname: 'gitlab.infrabox.com'
+        environment:
+            GITLAB_OMNIBUS_CONFIG: |
+                external_url 'http://gitlab.infrabox.com:30080/'
+                gitlab_rails['initial_root_password'] = 'hello123'
+        ports:
+            - "30080:30080"
+            - "30022:22"
+        # the following are hints on what volumes to mount if you want to persist data
+        #volumes:
+        #    - data/gitlab/config:/etc/gitlab:rw
+        #    - data/gitlab/logs:/var/log/gitlab:rw
+        #    - data/gitlab/data:/var/opt/gitlab:rw
+
+networks:
+  default:
+    external:
+      name: storage_default
+
