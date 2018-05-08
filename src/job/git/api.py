@@ -107,7 +107,7 @@ class Clone(Resource):
 
 def main(): # pragma: no cover
     logger.info('Starting Server')
-    http_server = WSGIServer(('0.0.0.0', 8080), app)
+    http_server = WSGIServer(('0.0.0.0', 8033), app)
     http_server.serve_forever()
 
 if __name__ == "__main__": # pragma: no cover

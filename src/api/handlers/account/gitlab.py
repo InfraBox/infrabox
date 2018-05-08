@@ -36,6 +36,8 @@ def get_gitlab_api(url, token):
     }
     url = os.environ['INFRABOX_GITLAB_API_URL'] + url
 
+    #TODO(andrew) somehow request to gitlab api
+    #takes too long to proceed
     r = requests.get(url, headers=headers, verify=False)
 
     return r.json()
@@ -71,6 +73,7 @@ class Connect(Resource):
 class Projects(Resource):
     @auth_required(['user'], check_project_access=False)
     def get(self):
+        logger.error('\n\nPRJ11\n\n')
         user_id = g.token['user']['id']
         user = g.db.execute_one_dict('''
                 SELECT gitlab_api_token, gitlab_id
@@ -127,6 +130,7 @@ class Auth(Resource):
 @gitlab_auth.route('/auth/callback')
 class Login(Resource):
     def get(self):
+        logger.error('\n\nAUTH!!\n\n')
         state = request.args.get('state')
         code = request.args.get('code')
 
@@ -136,7 +140,7 @@ class Login(Resource):
             abort(401)
 
         del states[state]
-
+        logger.error('\n\nAUTH22\n\n')
         r = requests.post(GITLAB_TOKEN_URL, json={
             'client_id': GITLAB_APPLICATION_ID,
             'client_secret': GITLAB_APPLICATION_SECRET,
@@ -144,7 +148,7 @@ class Login(Resource):
             'grant_type': 'authorization_code',
             'redirect_uri': GITLAB_CALLBACK_URL
         }, verify=False)
-
+        logger.error('\n\nAUTH33\n\n')
         if r.status_code != 200:
             logger.error(r.text)
             abort(500)
@@ -200,7 +204,7 @@ class Login(Resource):
         g.db.commit()
 
         token = encode_user_token(user_id)
-        url = os.environ['INFRABOX_ROOT_URL'] + '/dashboard/'
+        url = 'http://localhost:8080' + '/dashboard/' #os.environ['INFRABOX_ROOT_URL']
         res = redirect(url)
         res.set_cookie('token', token)
         return res

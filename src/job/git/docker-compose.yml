@@ -1,0 +1,19 @@
+version: "3.2"
+
+services:
+    job-git:
+           build:
+                context: ../../../
+                dockerfile: src/job/git/Dockerfile
+           environment:
+               - INFRABOX_SERVICE=job-git
+               - INFRABOX_VERSION=local
+               - INFRABOX_JOB_REPO_MOUNT_PATH=/tmp/infrabox-compose/repo
+               - INFRABOX_GENERAL_DONT_CHECK_CERTIFICATES=true
+           volumes:
+               - /tmp/infrabox-compose/repo:/tmp/infrabox-compose/repo
+
+networks:
+  default:
+    external:
+      name: storage_default

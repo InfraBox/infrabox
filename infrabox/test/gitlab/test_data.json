@@ -1,0 +1,30 @@
+{
+    "projects": [
+        {
+            "name": "TestProj1",
+            "public": "True",
+            "files_path": "./testproj1_files/"
+        },
+        {
+            "name": "TestProj2",
+            "public": "False",
+            "files_path": "./testproj2_files/"
+        },
+        {
+            "name": "TestProj3",
+            "public": "True",
+            "files_path": "./testproj3_files/"
+        }
+    ],
+
+    "users": [
+        {
+            "username": "TestUser1",
+            "user_password": "TestPassword1"
+        },
+        {
+            "username": "TestUser2",
+            "user_password": "TestPassword2"
+        }
+    ]
+}

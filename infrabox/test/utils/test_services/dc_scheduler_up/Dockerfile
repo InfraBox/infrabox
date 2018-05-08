@@ -6,8 +6,8 @@ COPY src/scheduler/docker-compose scheduler
 COPY src/pyinfraboxutils /pyinfraboxutils
 COPY infrabox/test/utils/id_rsa /var/run/secrets/rsa/id_rsa
 COPY infrabox/test/utils/id_rsa.pub /var/run/secrets/rsa/id_rsa.pub
-COPY infrabox/test/all_up/dc_scheduler_up/daemon.json /etc/docker/daemon.json
-COPY infrabox/test/all_up/dc_scheduler_up/daemon.json /etc/default/docker.json
+COPY infrabox/test/utils/test_services/dc_scheduler_up/daemon.json /etc/docker/daemon.json
+COPY infrabox/test/utils/test_services/dc_scheduler_up/daemon.json /etc/default/docker.json
 
 ENV PYTHONPATH=/
 

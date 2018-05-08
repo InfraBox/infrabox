@@ -65,13 +65,17 @@ class Scheduler(object):
         prefix = os.environ.get('INFRABOX_DOCKER_COMPOSE_PROJECT_PREFIX', 'compose')
 
         cmd = [
+            #'docker',
+            #'pull',
+            #os.environ['INFRABOX_DOCKER_REGISTRY'] + '/%s' %os.environ['INFRABOX_JOB_IMAGE_TAG'],
+            #'&&',
             'docker',
             'run',
             '--rm',
             '-e', "INFRABOX_JOB_ID=%s" % job_id,
             '-e', "INFRABOX_GENERAL_DONT_CHECK_CERTIFICATES=true",
             '-e', "INFRABOX_JOB_API_URL=http://nginx-ingress/api/job",
-            '-e', "INFRABOX_JOB_GIT_URL=http://job-git:8080",
+            '-e', "INFRABOX_JOB_GIT_URL=%s" % os.environ['INFRABOX_JOB_GIT_URL'],
             '-e', "INFRABOX_SERVICE=job",
             '-e', "INFRABOX_VERSION=latest",
             '-e', "INFRABOX_LOCAL_CACHE_ENABLED=false",
@@ -84,12 +88,22 @@ class Scheduler(object):
             '-e', "INFRABOX_JOB_RESOURCES_LIMITS_MEMORY=%s" % memory,
             '-e', "INFRABOX_JOB_RESOURCES_LIMITS_CPU=%s" % cpu,
             '--privileged',
-            '--network=%s_infrabox' % prefix,
+            '--network=infrabox_test'#%s_infrabox' % prefix,
             '-v', '/var/run/docker.sock:/var/run/docker.sock',
             '-v', '/tmp/infrabox-compose/repo:/tmp/infrabox-compose/repo',
             '--name=ib-job-%s' % job_id,
             '--link=%s_nginx-ingress_1:nginx-ingress' % prefix,
-            os.environ['INFRABOX_DOCKER_REGISTRY'] + '/job:%s' % os.environ['INFRABOX_JOB_VERSION']
+            os.environ['INFRABOX_DOCKER_REGISTRY'] + '/%s' % os.environ['INFRABOX_JOB_IMAGE_TAG']
+            ###os.environ['INFRABOX_DOCKER_REGISTRY'] + '/job:%s' % os.environ['INFRABOX_JOB_VERSION']
+        ]
+
+        execute(cmd)
+
+        cmd = [
+            'docker',
+            'rmi',
+            '-f',
+            os.environ['INFRABOX_JOB_IMAGE_TAG']
         ]
 
         execute(cmd)

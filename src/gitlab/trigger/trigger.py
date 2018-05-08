@@ -122,7 +122,9 @@ class Trigger(object):
         commit_id = c['id']
 
         if not result:
-            status_url = repository['web_url'].format(sha=c['id'])
+            #TODO(andrew) check if there is non api url
+            #for updating commit status
+            status_url = get_env('INFRABOX_GITLAB_API_URL') + '/projects/%s/statuses/%s' % (project_id, c['id'])
             result = self.execute('''
                 INSERT INTO "commit" (
                     id, message, repository_id, timestamp,
@@ -358,12 +360,14 @@ def main():
     get_env('INFRABOX_DATABASE_PASSWORD')
     get_env('INFRABOX_DATABASE_HOST')
     get_env('INFRABOX_DATABASE_PORT')
+    get_env('INFRABOX_GITLAB_API_URL')
     get_env('INFRABOX_GITLAB_WEBHOOK_SECRET')
+
 
     connect_db()  # Wait until DB is ready
 
     install(InfraBoxPostgresPlugin())
-    run(host='0.0.0.0', port=8080)
+    run(host='0.0.0.0', port=8011)
 
 
 if __name__ == '__main__':

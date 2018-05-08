@@ -1,29 +1,6 @@
 version: "3.3"
 
 services:
-    gitlab:
-        image: "gitlab/gitlab-ce"
-        restart: always
-        hostname: 'gitlab'
-        #logging:
-        #    driver: none
-        environment:
-            GITLAB_OMNIBUS_CONFIG: |
-                external_url 'http://gitlab:30080/'
-                gitlab_rails['initial_root_password'] = 'hello123'
-        ports:
-            - "30080:30080"
-            - "30022:22"
-        # the following are hints on what volumes to mount if you want to persist data
-        #volumes:
-        #    - data/gitlab/config:/etc/gitlab:rw
-        #    - data/gitlab/logs:/var/log/gitlab:rw
-        #    - data/gitlab/data:/var/opt/gitlab:rw
-        links:
-            - gitlab-trigger
-        #networks:
-        #    - infrabox_test
-
     minio:
         image: minio/minio
         command: server /data
@@ -37,7 +14,7 @@ services:
 
     minio-init:
         build:
-            context: ../../../
+            context: ../../../../
             dockerfile: src/docker-compose/minio-init/Dockerfile
         links:
             - minio
@@ -46,7 +23,7 @@ services:
 
     postgres:
         build:
-            context: ../../../
+            context: ../../../../
             dockerfile: infrabox/utils/storage/postgres/Dockerfile
         ports:
             - "5439:5432"
@@ -55,7 +32,7 @@ services:
 
     docker-auth:
         build:
-            context: ../../../
+            context: ../../../../
             dockerfile: src/docker-registry/auth/Dockerfile
         environment:
             - INFRABOX_VERSION=local
@@ -68,21 +45,6 @@ services:
         #networks:
         #     - infrabox_test
 
-        #docker-registry-nginx:
-    #    build:
-    #        context: ../../../
-    #        dockerfile: src/docker-registry/nginx/Dockerfile
-    #    links:
-    #        - docker-registry
-    #        - docker-registry-auth
-    #    environment:
-    #        - INFRABOX_DOCKER_REGISTRY_ADMIN_PASSWORD=admin
-    #        - INFRABOX_DOCKER_REGISTRY_ADMIN_USERNAME=admin
-    #        - INFRABOX_AUTH_HOST=docker-registry-auth
-    #        - INFRABOX_REGISTRY_HOST=docker-registry
-    #    #networks:
-    #    #    - infrabox_test
-
     docker-registry:
         image: registry
         restart: always
@@ -91,21 +53,10 @@ services:
         #networks:
         #    - infrabox_test
 
-    #docker_auth:
-    #    build:
-    #        context: ../../../
-    #        dockerfile: infrabox/test-registry/Dockerfile_auth
-    #    environment:
-    #        - INFRABOX_SERVICE=registry-auth
-    #        - INFRABOX_VERSION=local
-    #        - INFRABOX_DATABASE_USER=postgres
-    #        - INFRABOX_DATABASE_PASSWORD=postgres
-    #        - INFRABOX_DATABASE_HOST=postgres
-    #        - INFRABOX_DATABASE_PORT=5432
-    #        - INFRABOX_DATABASE_DB=postgres
+
     docker-nginx:
         build:
-            context: ../../../
+            context: ../../../../
             dockerfile: src/docker-registry/nginx/Dockerfile
         links:
             - docker-registry:docker-registry
@@ -118,12 +69,12 @@ services:
 
     static:
         build:
-            context: ../../../
+            context: ../../../../
             dockerfile: infrabox/deploy/static/Dockerfile
 
     nginx-ingress:
         build:
-            context: ../../../
+            context: ../../../../
             dockerfile: src/docker-compose/ingress/Dockerfile
         ports:
             - "8090:80"
@@ -136,7 +87,7 @@ services:
 
     gitlab-trigger:
         build:
-            context: ../../../
+            context: ../../../../
             dockerfile: src/gitlab/trigger/Dockerfile
         environment:
             - INFRABOX_VERSION=local
@@ -146,15 +97,34 @@ services:
             - INFRABOX_DATABASE_PASSWORD=postgres
             - INFRABOX_DATABASE_DB=postgres
             - INFRABOX_DATABASE_PORT=5432
+            - INFRABOX_GITLAB_API_URL=http://localhost:30080/api/v4
             - INFRABOX_GITLAB_WEBHOOK_SECRET=p45c7cf0a894f123d1d5834585c9080a9c423fdab23aebbc34c37aac1a5432ha
         ports:
-            - "8011:8011"
+            - "8013:8011"
+        #networks:
+        #    - infrabox_test
+
+    gitlab-review:
+        build:
+            context: ../../../../
+            dockerfile: src/gitlab/review/Dockerfile
+        environment:
+            - INFRABOX_VERSION=local
+            - INFRABOX_SERVICE=gitlab-review
+            - INFRABOX_DATABASE_HOST=postgres
+            - INFRABOX_DATABASE_USER=postgres
+            - INFRABOX_DATABASE_PASSWORD=postgres
+            - INFRABOX_DATABASE_DB=postgres
+            - INFRABOX_DATABASE_PORT=5432
+            - INFRABOX_ROOT_URL=http://localhost:8080
+        ports:
+            - "8012:8012"
         #networks:
         #    - infrabox_test
 
     job-git:
         build:
-             context: ../../../
+             context: ../../../../
              dockerfile: src/job/git/Dockerfile
         environment:
             - INFRABOX_SERVICE=job-git
@@ -163,14 +133,16 @@ services:
             - INFRABOX_GENERAL_DONT_CHECK_CERTIFICATES=true
         volumes:
             - /tmp/infrabox-compose/repo:/tmp/infrabox-compose/repo
+        ports:
+            - "8033:8033"
         #networks:
         #     - infrabox_test
 
     dc-scheduler:
         build:
-            context: ../../../
+            context: ../../../../
             #using custom dockerfile due to rsa keys copy
-            dockerfile: infrabox/test/all_up/dc_scheduler_up/Dockerfile
+            dockerfile: infrabox/test/utils/test_services/dc_scheduler_up/Dockerfile
         tty: true
         environment:
             - INFRABOX_SERVICE=dc-scheduler
@@ -178,12 +150,12 @@ services:
             - INFRABOX_DATABASE_DB=postgres
             - INFRABOX_DATABASE_USER=postgres
             - INFRABOX_DATABASE_PASSWORD=postgres
-            - INFRABOX_DATABASE_HOST=postgres
-            - INFRABOX_DATABASE_PORT=5432
-            - INFRABOX_DOCKER_REGISTRY=registry:5000
+            - INFRABOX_DATABASE_HOST=localhost
+            - INFRABOX_DATABASE_PORT=5439
+            - INFRABOX_DOCKER_REGISTRY=localhost:5000
             - INFRABOX_JOB_VERSION=1
             - INFRABOX_JOB_MAX_OUTPUT_SIZE=65536
-            - INFRABOX_JOB_GIT_URL=job-git:8033
+            - INFRABOX_JOB_GIT_URL=localhost:8033
             - INFRABOX_RSA_PRIVATE_KEY_PATH=/var/run/secrets/rsa/id_rsa
             - INFRABOX_RSA_PUBLIC_KEY_PATH=/var/run/secrets/rsa/id_rsa.pub
             - INFRABOX_JOB_IMAGE_TAG=testjobimage
@@ -195,22 +167,20 @@ services:
         #    - infrabox_test
         #external_links:
         #    - registry
-        links:
-            - postgres
-            #- docker-registry
+        network_mode: "host"
 
     api:
         build:
-            context: ../../../
+            context: ../../../../
             #using custom dockerfile due to rsa keys copy
-            dockerfile: infrabox/test/all_up/api_up/Dockerfile
+            dockerfile: infrabox/test/utils/test_services/api_up/Dockerfile
         environment:
             # DB Configuration
-            - INFRABOX_DATABASE_HOST=postgres
+            - INFRABOX_DATABASE_HOST=localhost
             - INFRABOX_DATABASE_USER=postgres
             - INFRABOX_DATABASE_PASSWORD=postgres
             - INFRABOX_DATABASE_DB=postgres
-            - INFRABOX_DATABASE_PORT=5432
+            - INFRABOX_DATABASE_PORT=5439
 
             # Service Config
             - INFRABOX_VERSION=local
@@ -230,8 +200,8 @@ services:
             - INFRABOX_STORAGE_S3_ENABLED=true
             - INFRABOX_STORAGE_S3_SECURE=false
             - INFRABOX_STORAGE_S3_REGION=us-east-1
-            - INFRABOX_STORAGE_S3_ENDPOINT=http://minio
-            - INFRABOX_STORAGE_S3_PORT=9000
+            - INFRABOX_STORAGE_S3_ENDPOINT=http://localhost
+            - INFRABOX_STORAGE_S3_PORT=9009
             - INFRABOX_STORAGE_S3_BUCKET=infrabox
             - INFRABOX_STORAGE_S3_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE
             - INFRABOX_STORAGE_S3_SECRET_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
@@ -253,11 +223,11 @@ services:
             # Gitlab
             - INFRABOX_GITLAB_ENABLED=true
             - INFRABOX_GITLAB_LOGIN_ENABLED=true
-            - INFRABOX_GITLAB_API_URL=http://gitlab:30080/api/v4
+            - INFRABOX_GITLAB_API_URL=http://localhost:30080/api/v4
             - INFRABOX_GITLAB_LOGIN_URL=http://localhost:30080/users/sign_in
             - INFRABOX_GITLAB_OAUTH_URL=http://localhost:30080/oauth
-            - INFRABOX_GITLAB_APPLICATION_ID=8df75cfe2d6695f0e8c091ee63c80e0cabc80daa99448a797c3564bc93ce75ea
-            - INFRABOX_GITLAB_APPLICATION_SECRET=5a6f94300b709167e7b42956f01d82e1d45260f7f397450d9a985e42b2638506
+            - INFRABOX_GITLAB_APPLICATION_ID=43b45844eb739f20dd8a5ab94485508ecc89624bd71749846330186227164114
+            - INFRABOX_GITLAB_APPLICATION_SECRET=f3d474174e8896f91ca87c68482fbbac246234a002d27c9968c9d50348926456
             - INFRABOX_GITLAB_WEBHOOK_ID=2fdse5871a4c1fee54221q24bde54bc5b2ca56h5c3b76e485f131e765a7g234w
             - INFRABOX_GITLAB_WEBHOOK_SECRET=p45c7cf0a894f123d1d5834585c9080a9c423fdab23aebbc34c37aac1a5432ha
 
@@ -270,10 +240,11 @@ services:
         ports:
             - "8880:8880"
 
-        links:
-            - postgres
-            - minio
-            - gitlab
+        network_mode: "host"
+
+        #links:
+        #    - postgres
+        #    - minio
 
         #networks:
         #     - infrabox_test
